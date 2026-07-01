@@ -17,24 +17,21 @@ const { Client, GatewayIntentBits, ChannelType, ActivityType, PermissionFlagsBit
 const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const path = require('path');
 const mongoose = require('mongoose');
+const { spawn } = require('child_process');
 const youtubeDl = require('youtube-dl-exec');
-const { raw: ytdlpRaw } = require('youtube-dl-exec');
 
-// สร้าง stream เสียงโดย pipe yt-dlp โดยตรง (ไม่ต้องดึง CDN URL ที่หมดอายุเร็ว)
+// สร้าง stream เสียงโดย spawn yt-dlp โดยตรง (pipe stdout เข้า Discord)
 function createYtdlpStream(url) {
-  const subprocess = ytdlpRaw(
-    url,
-    [
-      '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
-      '--output', '-',
-      '--quiet',
-      '--no-warnings',
-      '--no-check-certificate',
-      '--no-playlist',
-    ],
-    { stdio: ['ignore', 'pipe', 'ignore'] }
-  );
-  return subprocess.stdout;
+  const proc = spawn('yt-dlp', [
+    '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+    '--output', '-',
+    '--quiet',
+    '--no-warnings',
+    '--no-check-certificate',
+    '--no-playlist',
+    url
+  ], { stdio: ['ignore', 'pipe', 'ignore'] });
+  return proc.stdout;
 }
 
 // --- ระบบบันทึก Logs ในหน่วยความจำ (In-Memory Logs) ---
