@@ -18,6 +18,24 @@ const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioReso
 const path = require('path');
 const mongoose = require('mongoose');
 const youtubeDl = require('youtube-dl-exec');
+const { raw: ytdlpRaw } = require('youtube-dl-exec');
+
+// สร้าง stream เสียงโดย pipe yt-dlp โดยตรง (ไม่ต้องดึง CDN URL ที่หมดอายุเร็ว)
+function createYtdlpStream(url) {
+  const subprocess = ytdlpRaw(
+    url,
+    [
+      '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+      '--output', '-',
+      '--quiet',
+      '--no-warnings',
+      '--no-check-certificate',
+      '--no-playlist',
+    ],
+    { stdio: ['ignore', 'pipe', 'ignore'] }
+  );
+  return subprocess.stdout;
+}
 
 // --- ระบบบันทึก Logs ในหน่วยความจำ (In-Memory Logs) ---
 const botLogs = [];
@@ -198,21 +216,9 @@ async function playNextSong(guildId) {
   try {
     logEvent(`กำลังดึงสตรีมเพลงถัดไปจาก YouTube: "${nextSong.title}"`, 'bot');
 
-    const info = await youtubeDl(nextSong.url, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificate: true,
-      noPlaylist: true,
-    });
-
-    const video = info.entries ? info.entries[0] : info;
-    const audioFormats = video.formats.filter(f => f.vcodec === 'none' && f.acodec !== 'none');
-    if (audioFormats.length === 0) throw new Error('ไม่พบฟอร์แมตเสียง');
-
-    audioFormats.sort((a, b) => (b.abr || 0) - (a.abr || 0));
-    const bestAudio = audioFormats[0];
-
-    const resource = createAudioResource(bestAudio.url);
+    // pipe yt-dlp โดยตรงเข้า Discord ไม่ต้องดึง CDN URL ที่อาจหมดอายุ
+    const stream = createYtdlpStream(nextSong.url);
+    const resource = createAudioResource(stream);
     player.play(resource);
     logEvent(`กำลังเล่นเพลงถัดไป: "${nextSong.title}"`, 'bot');
   } catch (error) {
@@ -792,7 +798,7 @@ app.post('/api/music/play', async (req, res) => {
     audioFormats.sort((a, b) => (b.abr || 0) - (a.abr || 0));
     const streamUrl = audioFormats[0].url;
 
-    const song = { title, url, duration, streamUrl };
+    const song = { title, url, duration };
     let queue = musicQueues.get(guildId);
     if (!queue) { queue = []; musicQueues.set(guildId, queue); }
     queue.push(song);
@@ -800,7 +806,9 @@ app.post('/api/music/play', async (req, res) => {
     const player = getGuildAudioPlayer(guildId, connection);
     if (player.state.status === AudioPlayerStatus.Idle && queue.length === 1) {
       logEvent(`เริ่มเล่นเพลง: "${song.title}"`, 'bot');
-      const resource = createAudioResource(song.streamUrl);
+      // pipe yt-dlp โดยตรงเข้า Discord ไม่ต้องดึง CDN URL
+      const stream = createYtdlpStream(url);
+      const resource = createAudioResource(stream);
       player.play(resource);
     } else {
       logEvent(`เพิ่มเพลงเข้าคิวลำดับที่: ${queue.length}`, 'bot');
