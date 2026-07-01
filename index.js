@@ -17,7 +17,7 @@ const { Client, GatewayIntentBits, ChannelType, ActivityType, PermissionFlagsBit
 const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const path = require('path');
 const mongoose = require('mongoose');
-const ytdl = require('@distube/ytdl-core');
+const youtubeDl = require('youtube-dl-exec');
 
 // --- ระบบบันทึก Logs ในหน่วยความจำ (In-Memory Logs) ---
 const botLogs = [];
@@ -198,18 +198,25 @@ async function playNextSong(guildId) {
   try {
     logEvent(`กำลังดึงสตรีมเพลงถัดไปจาก YouTube: "${nextSong.title}"`, 'bot');
 
-    // ดึงสตรีมเสียงโดยตรงผ่าน @distube/ytdl-core (Node.js ล้วน ไม่ต้องพึ่ง Python)
-    const stream = ytdl(nextSong.url, {
-      filter: 'audioonly',
-      quality: 'highestaudio',
-      highWaterMark: 1 << 25,
+    const info = await youtubeDl(nextSong.url, {
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCheckCertificate: true,
+      noPlaylist: true,
     });
 
-    const resource = createAudioResource(stream);
+    const video = info.entries ? info.entries[0] : info;
+    const audioFormats = video.formats.filter(f => f.vcodec === 'none' && f.acodec !== 'none');
+    if (audioFormats.length === 0) throw new Error('ไม่พบฟอร์แมตเสียง');
+
+    audioFormats.sort((a, b) => (b.abr || 0) - (a.abr || 0));
+    const bestAudio = audioFormats[0];
+
+    const resource = createAudioResource(bestAudio.url);
     player.play(resource);
-    logEvent(`กำลังเล่นเพลงถัดไปในห้องแชทเสียง: "${nextSong.title}"`, 'bot');
+    logEvent(`กำลังเล่นเพลงถัดไป: "${nextSong.title}"`, 'bot');
   } catch (error) {
-    logEvent(`การรันเพลงถัดไปผิดพลาด: ${error.message} (กำลังข้ามไปยังเพลงถัดไป...)`, 'error');
+    logEvent(`รันเพลงถัดไปผิดพลาด: ${error.message}`, 'error');
     playNextSong(guildId);
   }
 }
@@ -749,59 +756,54 @@ app.post('/api/music/play', async (req, res) => {
 
     logEvent(`กำลังค้นหาและดึงข้อมูลเพลงจาก YouTube: "${query}"`, 'system');
 
-    let videoUrl = query;
+    let targetQuery = query;
     const isUrl = query.startsWith('http');
 
-    if (!isUrl) {
-      // ค้นหาผ่าน ytdl เมื่อเป็นชื่อเพลง ไม่ใช่ URL
-      const { default: youtubeSr } = await import('youtube-sr');
-      const searchResult = await youtubeSr.YouTube.searchOne(query);
-      if (!searchResult) {
-        return res.status(404).json({ error: 'ไม่พบผลลัพธ์การค้นหาเพลงนี้บน YouTube' });
-      }
-      videoUrl = `https://www.youtube.com/watch?v=${searchResult.id}`;
+    // ตัด playlist params ออกเพื่อเล่นเพลงเดียว
+    if (isUrl) {
+      try {
+        const cleanUrl = new URL(query);
+        const videoId = cleanUrl.searchParams.get('v');
+        if (videoId) targetQuery = `https://www.youtube.com/watch?v=${videoId}`;
+      } catch (_) {}
+    } else {
+      targetQuery = `ytsearch1:${query}`;
     }
 
-    // ตัดพารามิเตอร์ playlist ออกเพื่อดึงเฉพาะเพลงเดียว
-    const cleanUrl = new URL(videoUrl);
-    const videoId = cleanUrl.searchParams.get('v');
-    const finalUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : videoUrl;
+    const info = await youtubeDl(targetQuery, {
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCheckCertificate: true,
+      noPlaylist: true,
+    });
 
-    // ดึงข้อมูลเพลงโดย @distube/ytdl-core (Node.js ล้วน ไม่ต้องพึ่ง Python)
-    const info = await ytdl.getInfo(finalUrl);
-    const title = info.videoDetails.title;
-    const url = info.videoDetails.video_url;
-    const seconds = parseInt(info.videoDetails.lengthSeconds) || 0;
+    const video = info.entries ? info.entries[0] : info;
+    if (!video) return res.status(404).json({ error: 'ไม่พบผลลัพธ์' });
+
+    const title = video.title;
+    const url = video.webpage_url || video.url;
+    const seconds = video.duration || 0;
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    const duration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    const duration = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
 
-    const song = { title, url, duration };
+    const audioFormats = video.formats.filter(f => f.vcodec === 'none' && f.acodec !== 'none');
+    if (audioFormats.length === 0) return res.status(400).json({ error: 'ไม่พบฟอร์แมตเสียง' });
+    audioFormats.sort((a, b) => (b.abr || 0) - (a.abr || 0));
+    const streamUrl = audioFormats[0].url;
 
-    // เก็บเพลงลงคิวของกิลด์
+    const song = { title, url, duration, streamUrl };
     let queue = musicQueues.get(guildId);
-    if (!queue) {
-      queue = [];
-      musicQueues.set(guildId, queue);
-    }
+    if (!queue) { queue = []; musicQueues.set(guildId, queue); }
     queue.push(song);
 
-    // ดึง/สร้าง Audio Player และ subscribe เข้ากับ connection
     const player = getGuildAudioPlayer(guildId, connection);
-
-    // ถ้าเครื่องเล่นเพลงกำลังสแตนด์บาย (Idle) และเพลงนี้เป็นเพลงแรกในคิว ให้เริ่มเล่นสตรีมทันที
     if (player.state.status === AudioPlayerStatus.Idle && queue.length === 1) {
-      logEvent(`กำลังเล่นสตรีมเสียงตรงจาก YouTube: "${song.title}"`, 'bot');
-      const stream = ytdl(url, {
-        filter: 'audioonly',
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25,
-      });
-      const resource = createAudioResource(stream);
+      logEvent(`เริ่มเล่นเพลง: "${song.title}"`, 'bot');
+      const resource = createAudioResource(song.streamUrl);
       player.play(resource);
-      logEvent(`สั่งรันสตรีมเพลง YouTube สำเร็จ: "${song.title}" ในห้องเสียง "${channel.name}"`, 'bot');
     } else {
-      logEvent(`เพิ่มเพลง "${song.title}" เข้าคิวเรียบร้อย (คิวลำดับที่: ${queue.length})`, 'bot');
+      logEvent(`เพิ่มเพลงเข้าคิวลำดับที่: ${queue.length}`, 'bot');
     }
 
     res.json({ success: true, title: song.title });
@@ -892,29 +894,31 @@ app.post('/api/music/favorites', async (req, res) => {
 
     // หากส่งคำค้นหามาแทนข้อมูลตรงๆ ให้แปลง/เสิร์ชผ่าน yt-dlp ก่อนเซฟ
     if (query && (!title || !url)) {
-      logEvent(`กำลังเสิร์ชคลังเพื่อบันทึกเพลงโปรด: "${query}"`, 'system');
-      let finalUrl = query;
+      logEvent(`ค้นหาเพลงโปรด: "${query}"`, 'system');
+      let targetQuery = query;
       if (!query.startsWith('http')) {
-        // ค้นหาผ่าน youtube-sr เมื่อเป็นชื่อเพลง
-        const { default: youtubeSr } = await import('youtube-sr');
-        const searchResult = await youtubeSr.YouTube.searchOne(query);
-        if (!searchResult) {
-          return res.status(404).json({ error: 'ไม่พบเพลงนี้บน YouTube' });
-        }
-        finalUrl = `https://www.youtube.com/watch?v=${searchResult.id}`;
+        targetQuery = `ytsearch1:${query}`;
       } else {
-        // ตัดพารามิเตอร์ playlist ออก
-        const cleanUrl = new URL(query);
-        const videoId = cleanUrl.searchParams.get('v');
-        if (videoId) finalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        try {
+          const cu = new URL(query);
+          const vid = cu.searchParams.get('v');
+          if (vid) targetQuery = `https://www.youtube.com/watch?v=${vid}`;
+        } catch (_) {}
       }
-      const info = await ytdl.getInfo(finalUrl);
-      targetTitle = info.videoDetails.title;
-      targetUrl = info.videoDetails.video_url;
-      const seconds = parseInt(info.videoDetails.lengthSeconds) || 0;
+      const info = await youtubeDl(targetQuery, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCheckCertificate: true,
+        noPlaylist: true,
+      });
+      const video = info.entries ? info.entries[0] : info;
+      if (!video) return res.status(404).json({ error: 'ไม่พบเพลงนี้บน YouTube' });
+      targetTitle = video.title;
+      targetUrl = video.webpage_url || video.url;
+      const seconds = video.duration || 0;
       const mins = Math.floor(seconds / 60);
       const secs = seconds % 60;
-      targetDuration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      targetDuration = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
     }
 
     if (!targetTitle || !targetUrl) {
