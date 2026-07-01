@@ -1,0 +1,688 @@
+// --- ตัวแปรแคชสถานะบนหน้าเว็บ ---
+let botGuilds = [];
+let isBotOnline = false;
+let loadedGuildId = null;
+let hasInitialLoaded = false;
+
+// --- องค์ประกอบ DOM ---
+// ส่วนหัวและสถานะ
+const botStatusBadge = document.getElementById('bot-status');
+const botStatusText = botStatusBadge.querySelector('.status-text');
+const pingStat = document.getElementById('stat-ping');
+const serversStat = document.getElementById('stat-servers');
+const globalGuildSelect = document.getElementById('global-guild-select');
+
+// เมนูแท็บ
+const tabButtons = document.querySelectorAll('.tab-btn');
+const tabPanels = document.querySelectorAll('.tab-panel');
+
+// แท็บ 1: ค่าทั่วไป & Logs
+const generalSettingsForm = document.getElementById('general-settings-form');
+const botPrefixInput = document.getElementById('bot-prefix');
+const botActivityInput = document.getElementById('bot-activity');
+const logsContainer = document.getElementById('logs-container');
+const btnClearLogs = document.getElementById('btn-clear-logs');
+
+// แท็บ 2: จัดการห้อง (Channels)
+const channelCreateForm = document.getElementById('channel-create-form');
+const newChannelName = document.getElementById('new-channel-name');
+const newChannelType = document.getElementById('new-channel-type');
+const btnCreateChannel = document.getElementById('btn-create-channel');
+
+// แท็บ 3: ข้อความต้อนรับ (Welcome)
+const welcomeSettingsForm = document.getElementById('welcome-settings-form');
+const welcomeEnabledCheck = document.getElementById('welcome-enabled');
+const welcomeChannelSelect = document.getElementById('welcome-channel-select');
+const welcomeMessageInput = document.getElementById('welcome-message-input');
+const leaveEnabledCheck = document.getElementById('leave-enabled');
+const leaveChannelSelect = document.getElementById('leave-channel-select');
+const leaveMessageInput = document.getElementById('leave-message-input');
+const btnSaveWelcome = document.getElementById('btn-save-welcome');
+
+// แท็บ 4: คำสั่งตอบกลับพิเศษ
+const customCommandForm = document.getElementById('custom-command-form');
+const cmdName = document.getElementById('cmd-name');
+const cmdResponse = document.getElementById('cmd-response');
+const commandsTableBody = document.getElementById('commands-table-body');
+
+// แท็บ 5: จัดการสมาชิก (Moderation)
+const moderationForm = document.getElementById('moderation-form');
+const modMemberSelect = document.getElementById('mod-member-select');
+const modActionSelect = document.getElementById('mod-action-select');
+const btnExecuteMod = document.getElementById('btn-execute-mod');
+
+// แท็บ 6: เครื่องเล่นเพลง
+const musicVoiceSelect = document.getElementById('music-voice-select');
+const musicSearch = document.getElementById('music-search');
+const btnMusicPlay = document.getElementById('btn-music-play');
+const btnMusicPause = document.getElementById('btn-music-pause');
+const btnMusicStop = document.getElementById('btn-music-stop');
+const playlistQueue = document.getElementById('playlist-queue');
+
+// --- ระบบบันทึก Logs บนหน้าเว็บ ---
+function addLog(text, type = 'system') {
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${type}`;
+  const now = new Date();
+  const timeStr = now.toTimeString().split(' ')[0];
+  entry.innerText = `[${timeStr}] ${text}`;
+  logsContainer.appendChild(entry);
+  logsContainer.scrollTop = logsContainer.scrollHeight;
+}
+
+// --- แท็บควบคุมการสลับหน้า ---
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    // ปิดแท็บเดิม
+    tabButtons.forEach(b => b.classList.remove('active'));
+    tabPanels.forEach(p => p.classList.remove('active'));
+    
+    // เปิดแท็บที่เลือก
+    btn.classList.add('active');
+    const targetTab = btn.getAttribute('data-tab');
+    document.getElementById(targetTab).classList.add('active');
+  });
+});
+
+// --- ดึงข้อมูลสถานะบอทจาก API ---
+async function fetchBotStatus() {
+  try {
+    const response = await fetch('/api/status');
+    if (!response.ok) throw new Error('การเชื่อมต่อล้มเหลว');
+    const data = await response.json();
+    
+    isBotOnline = data.online;
+    if (isBotOnline) {
+      botStatusBadge.className = 'status-badge online';
+      botStatusText.innerText = 'Online';
+      pingStat.innerText = `${data.ping} ms`;
+      serversStat.innerText = data.guildCount;
+      
+      // อัปเดตค่า Prefix/Activity เมื่ออินพุตไม่ถูกโฟกัส
+      if (document.activeElement !== botPrefixInput && document.activeElement !== botActivityInput) {
+        botPrefixInput.value = data.prefix || '!';
+        botActivityInput.value = data.activity || '';
+      }
+      
+      botGuilds = data.guilds || [];
+      updateGlobalGuildSelect();
+    } else {
+      setUIOffline();
+    }
+  } catch (error) {
+    setUIOffline();
+  }
+}
+
+// ดึง Logs
+async function fetchLogs() {
+  try {
+    const response = await fetch('/api/logs');
+    if (!response.ok) return;
+    const logs = await response.json();
+    
+    logsContainer.innerHTML = '';
+    if (logs.length === 0) {
+      addLog('ไม่มีประวัติการทำงานล่าสุด', 'system');
+      return;
+    }
+    
+    logs.forEach(log => {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${log.type}`;
+      entry.innerText = `[${log.time}] ${log.message}`;
+      logsContainer.appendChild(entry);
+    });
+  } catch (error) {
+    console.error('ดึง logs ไม่สำเร็จ:', error);
+  }
+}
+
+// ตั้งค่า UI บอทออฟไลน์
+function setUIOffline() {
+  isBotOnline = false;
+  botStatusBadge.className = 'status-badge offline';
+  botStatusText.innerText = 'Offline';
+  pingStat.innerText = '- ms';
+  serversStat.innerText = '-';
+  globalGuildSelect.innerHTML = '<option value="">-- บอทปิดใช้งานอยู่ --</option>';
+  globalGuildSelect.disabled = true;
+  disableGuildDependentControls();
+}
+
+// เคลียร์/ปิดตัวควบคุมทั้งหมดที่ขึ้นกับเซิร์ฟเวอร์
+function disableGuildDependentControls() {
+  // แท็บ 2: ห้อง
+  newChannelName.disabled = true;
+  newChannelType.disabled = true;
+  btnCreateChannel.disabled = true;
+  
+  // แท็บ 3: ต้อนรับ
+  welcomeEnabledCheck.disabled = true;
+  welcomeChannelSelect.disabled = true;
+  welcomeMessageInput.disabled = true;
+  leaveEnabledCheck.disabled = true;
+  leaveChannelSelect.disabled = true;
+  leaveMessageInput.disabled = true;
+  btnSaveWelcome.disabled = true;
+  
+  // แท็บ 5: สมาชิก
+  modMemberSelect.disabled = true;
+  modActionSelect.disabled = true;
+  btnExecuteMod.disabled = true;
+  
+  // แท็บ 6: เพลง
+  musicVoiceSelect.disabled = true;
+  musicSearch.disabled = true;
+  btnMusicPlay.disabled = true;
+  btnMusicPause.disabled = true;
+  btnMusicStop.disabled = true;
+}
+
+// อัปเดตรายชื่อเซิร์ฟเวอร์
+function updateGlobalGuildSelect() {
+  const currentVal = globalGuildSelect.value;
+  globalGuildSelect.disabled = false;
+  
+  if (!hasInitialLoaded) {
+    globalGuildSelect.innerHTML = '<option value="">-- เลือกเซิร์ฟเวอร์แชท --</option>';
+    botGuilds.forEach(guild => {
+      const opt = document.createElement('option');
+      opt.value = guild.id;
+      opt.text = guild.name;
+      globalGuildSelect.add(opt);
+    });
+
+    if (botGuilds.length > 0) {
+      globalGuildSelect.value = botGuilds[0].id;
+      loadedGuildId = botGuilds[0].id;
+      enableGuildDependentControls(botGuilds[0].id);
+    } else {
+      disableGuildDependentControls();
+    }
+    hasInitialLoaded = true;
+  } else {
+    if (currentVal !== loadedGuildId) {
+      loadedGuildId = currentVal;
+      enableGuildDependentControls(currentVal);
+    } else if (currentVal) {
+      updateDynamicGuildStatus(currentVal);
+    }
+  }
+}
+
+function updateDynamicGuildStatus(guildId) {
+  const guild = botGuilds.find(g => g.id === guildId);
+  if (!guild) return;
+  
+  // อัปเดตปุ่มหยุดเมื่อบอทอยู่ในห้องเสียง
+  if (guild.connectedVoiceChannelId) {
+    btnMusicStop.disabled = false;
+    btnMusicPause.disabled = false;
+  } else {
+    btnMusicStop.disabled = true;
+    btnMusicPause.disabled = true;
+  }
+
+  // อัปเดตคิวเพลงเรียลไทม์
+  updateMusicQueueUI(guild.musicQueue || []);
+}
+
+
+// เปิดใช้งานตัวควบคุมตามเซิร์ฟเวอร์ที่เลือก
+function enableGuildDependentControls(guildId) {
+  if (!guildId) {
+    disableGuildDependentControls();
+    return;
+  }
+  
+  const guild = botGuilds.find(g => g.id === guildId);
+  if (!guild) return;
+
+  // แท็บ 2: ห้อง
+  newChannelName.disabled = false;
+  newChannelType.disabled = false;
+  btnCreateChannel.disabled = false;
+
+  // แท็บ 3: ต้อนรับ
+  welcomeEnabledCheck.disabled = false;
+  leaveEnabledCheck.disabled = false;
+  btnSaveWelcome.disabled = false;
+  
+  // กรองแสดงเฉพาะห้องข้อความสำหรับระบบต้อนรับ/บอกลา
+  welcomeChannelSelect.innerHTML = '<option value="">-- เลือกห้องข้อความ --</option>';
+  leaveChannelSelect.innerHTML = '<option value="">-- เลือกห้องข้อความ --</option>';
+  
+  if (guild.textChannels && guild.textChannels.length > 0) {
+    guild.textChannels.forEach(ch => {
+      const opt1 = document.createElement('option');
+      opt1.value = ch.id;
+      opt1.text = `# ${ch.name}`;
+      welcomeChannelSelect.add(opt1);
+      
+      const opt2 = document.createElement('option');
+      opt2.value = ch.id;
+      opt2.text = `# ${ch.name}`;
+      leaveChannelSelect.add(opt2);
+    });
+  }
+
+  // โหลดค่าแจ้งเตือนต้อนรับเดิม
+  welcomeEnabledCheck.checked = guild.welcomeEnabled || false;
+  welcomeChannelSelect.value = guild.welcomeChannelId || '';
+  welcomeMessageInput.value = guild.welcomeMessage || '';
+  
+  leaveEnabledCheck.checked = guild.leaveEnabled || false;
+  leaveChannelSelect.value = guild.leaveChannelId || '';
+  leaveMessageInput.value = guild.leaveMessage || '';
+  
+  toggleWelcomeInputs();
+  toggleLeaveInputs();
+
+  // แท็บ 5: สมาชิก (Moderation)
+  modMemberSelect.innerHTML = '<option value="">-- เลือกสมาชิก --</option>';
+  if (guild.members && guild.members.length > 0) {
+    modMemberSelect.disabled = false;
+    modActionSelect.disabled = false;
+    btnExecuteMod.disabled = false;
+    guild.members.forEach(mem => {
+      const opt = document.createElement('option');
+      opt.value = mem.id;
+      opt.text = mem.tag;
+      modMemberSelect.add(opt);
+    });
+  } else {
+    modMemberSelect.innerHTML = '<option value="">-- ไม่พบสมาชิกในเซิร์ฟ --</option>';
+    modMemberSelect.disabled = true;
+    modActionSelect.disabled = true;
+    btnExecuteMod.disabled = true;
+  }
+
+  // แท็บ 6: เพลง
+  musicVoiceSelect.innerHTML = '<option value="">-- เลือกห้องเสียง --</option>';
+  if (guild.voiceChannels && guild.voiceChannels.length > 0) {
+    musicVoiceSelect.disabled = false;
+    musicSearch.disabled = false;
+    btnMusicPlay.disabled = false;
+    btnMusicPause.disabled = false;
+    btnMusicStop.disabled = false;
+    
+    guild.voiceChannels.forEach(ch => {
+      const opt = document.createElement('option');
+      opt.value = ch.id;
+      opt.text = `🔊 ${ch.name}`;
+      musicVoiceSelect.add(opt);
+    });
+    
+    if (guild.connectedVoiceChannelId) {
+      musicVoiceSelect.value = guild.connectedVoiceChannelId;
+    }
+  } else {
+    musicVoiceSelect.innerHTML = '<option value="">-- ไม่พบห้องเสียง --</option>';
+    musicVoiceSelect.disabled = true;
+    musicSearch.disabled = true;
+    btnMusicPlay.disabled = true;
+    btnMusicPause.disabled = true;
+    btnMusicStop.disabled = true;
+  }
+
+  // ดึงคิวเพลงเซิร์ฟเวอร์
+  updateMusicQueueUI(guild.musicQueue || []);
+}
+
+// สวิตช์เปิด-ปิดช่องป้อนระบบต้อนรับคนเข้า/ออก
+function toggleWelcomeInputs() {
+  const isEnabled = welcomeEnabledCheck.checked;
+  welcomeChannelSelect.disabled = !isEnabled;
+  welcomeMessageInput.disabled = !isEnabled;
+}
+
+function toggleLeaveInputs() {
+  const isEnabled = leaveEnabledCheck.checked;
+  leaveChannelSelect.disabled = !isEnabled;
+  leaveMessageInput.disabled = !isEnabled;
+}
+
+welcomeEnabledCheck.addEventListener('change', toggleWelcomeInputs);
+leaveEnabledCheck.addEventListener('change', toggleLeaveInputs);
+
+// ตรวจจับการเลือกเซิร์ฟเวอร์กลาง
+globalGuildSelect.addEventListener('change', (e) => {
+  enableGuildDependentControls(e.target.value);
+});
+
+// --- แท็บ 1: บันทึกค่าตั้งค่าทั่วไปลง MongoDB ---
+generalSettingsForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const prefix = botPrefixInput.value.trim();
+  const activity = botActivityInput.value.trim();
+  
+  if (!prefix) return alert('กรุณากรอก Prefix!');
+  
+  addLog('กำลังบันทึกการตั้งค่าทั่วไปลง MongoDB...', 'system');
+  try {
+    const response = await fetch('/api/settings/general', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix, activity })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog('บันทึกตั้งค่าทั่วไปลง MongoDB สำเร็จ! 🍃', 'success');
+      loadedGuildId = null;
+      fetchBotStatus();
+    } else {
+      addLog(`เกิดข้อผิดพลาด: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('ไม่สามารถส่งคำขอตั้งค่าได้', 'error');
+  }
+});
+
+// ปุ่มล้าง Log บนแผง Dashboard
+btnClearLogs.addEventListener('click', () => {
+  logsContainer.innerHTML = '';
+  addLog('ล้างประวัติการทำงานบนหน้าเว็บสำเร็จ', 'system');
+});
+
+// --- แท็บ 2: ส่งคำขอสร้างห้องใหม่ ---
+channelCreateForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const guildId = globalGuildSelect.value;
+  const name = newChannelName.value.trim();
+  const type = newChannelType.value;
+  
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+  if (!name) return alert('กรุณากรอกชื่อห้องที่จะสร้าง!');
+  
+  addLog(`กำลังสร้างห้องแชทใหม่ "${name}"...`, 'system');
+  btnCreateChannel.disabled = true;
+
+  try {
+    const response = await fetch('/api/channels/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, name, type })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`สร้างห้องใหม่สำเร็จ: ${result.channelName}`, 'success');
+      newChannelName.value = '';
+      loadedGuildId = null;
+      fetchBotStatus(); // อัปเดต dropdown ช่องห้องเสียง/แชท
+    } else {
+      addLog(`ไม่สามารถสร้างห้องได้: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดในการสั่งสร้างห้อง', 'error');
+  } finally {
+    btnCreateChannel.disabled = false;
+  }
+});
+
+// --- แท็บ 3: บันทึกระบบต้อนรับลง MongoDB ---
+welcomeSettingsForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const guildId = globalGuildSelect.value;
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+
+  const welcomeEnabled = welcomeEnabledCheck.checked;
+  const welcomeChannelId = welcomeChannelSelect.value;
+  const welcomeMessage = welcomeMessageInput.value.trim();
+  const leaveEnabled = leaveEnabledCheck.checked;
+  const leaveChannelId = leaveChannelSelect.value;
+  const leaveMessage = leaveMessageInput.value.trim();
+
+  if (welcomeEnabled && !welcomeChannelId) return alert('กรุณาเลือกห้องแจ้งต้อนรับ!');
+  if (leaveEnabled && !leaveChannelId) return alert('กรุณาเลือกห้องแจ้งบอกลา!');
+
+  addLog('กำลังส่งคำขอบันทึกข้อมูลต้อนรับลง MongoDB...', 'system');
+  btnSaveWelcome.disabled = true;
+
+  try {
+    const response = await fetch('/api/settings/welcome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        guildId,
+        welcomeEnabled,
+        welcomeChannelId,
+        welcomeMessage,
+        leaveEnabled,
+        leaveChannelId,
+        leaveMessage
+      })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog('บันทึกการตั้งค่าต้อนรับลง MongoDB สำเร็จ! 🍃', 'success');
+      loadedGuildId = null;
+      fetchBotStatus();
+    } else {
+      addLog(`บันทึกต้อนรับล้มเหลว: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดในการบันทึกข้อมูลต้อนรับ', 'error');
+  } finally {
+    btnSaveWelcome.disabled = false;
+  }
+});
+
+// --- แท็บ 4: คำสั่งตอบกลับพิเศษ ---
+// โหลดคำสั่งพิเศษจาก DB
+async function fetchCustomCommands() {
+  try {
+    const response = await fetch('/api/commands');
+    if (!response.ok) return;
+    const commands = await response.json();
+    
+    commandsTableBody.innerHTML = '';
+    if (commands.length === 0) {
+      commandsTableBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">ยังไม่มีคำสั่งพิเศษเพิ่มลงฐานข้อมูล</td></tr>';
+      return;
+    }
+    
+    commands.forEach(cmd => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${cmd.commandName}</strong></td>
+        <td>${cmd.responseContent}</td>
+        <td class="text-right">
+          <button class="btn btn-sm btn-danger" onclick="deleteCustomCommand('${cmd.commandName}')">ลบ</button>
+        </td>
+      `;
+      commandsTableBody.appendChild(tr);
+    });
+  } catch (error) {
+    console.error('โหลดคำสั่งพิเศษล้มเหลว:', error);
+  }
+}
+
+// ส่งเพิ่มคำสั่งลง DB
+customCommandForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = cmdName.value.trim().toLowerCase();
+  const responseText = cmdResponse.value.trim();
+  
+  if (!name || !responseText) return;
+  
+  addLog(`กำลังสร้างคำสั่งตอบกลับพิเศษ "${name}"...`, 'system');
+  try {
+    const response = await fetch('/api/commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, response: responseText })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`เพิ่มคำสั่งพิเศษ "${name}" สำเร็จ!`, 'success');
+      cmdName.value = '';
+      cmdResponse.value = '';
+      fetchCustomCommands();
+    } else {
+      addLog(`เพิ่มคำสั่งล้มเหลว: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดในการเพิ่มคำสั่ง', 'error');
+  }
+});
+
+// ลบคำสั่งพิเศษออกจาก DB
+async function deleteCustomCommand(name) {
+  if (!confirm(`คุณต้องการลบคำสั่ง "${name}" หรือไม่?`)) return;
+  
+  addLog(`กำลังลบคำสั่งพิเศษ "${name}"...`, 'system');
+  try {
+    const response = await fetch(`/api/commands/${name}`, { method: 'DELETE' });
+    if (response.ok) {
+      addLog(`ลบคำสั่งพิเศษ "${name}" สำเร็จแล้ว!`, 'success');
+      fetchCustomCommands();
+    } else {
+      addLog(`ลบคำสั่งพิเศษไม่สำเร็จ`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดในการขอลบคำสั่ง', 'error');
+  }
+}
+
+// --- แท็บ 5: จัดการสมาชิก (Moderation Action) ---
+moderationForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const guildId = globalGuildSelect.value;
+  const userId = modMemberSelect.value;
+  const action = modActionSelect.value;
+  
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+  if (!userId) return alert('กรุณาเลือกสมาชิกที่จะลงโทษ!');
+  
+  const memberName = modMemberSelect.options[modMemberSelect.selectedIndex].text;
+  if (!confirm(`ยืนยันที่จะทำลงโทษ "${memberName}" โดยการ [${action.toUpperCase()}] หรือไม่?`)) return;
+  
+  addLog(`กำลังดำเนินการลงโทษ [${action.toUpperCase()}] สมาชิก ${memberName}...`, 'system');
+  btnExecuteMod.disabled = true;
+
+  try {
+    const response = await fetch('/api/moderation/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, userId, action })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`ลงโทษสำเร็จ! สมาชิกถูกจัดการเรียบร้อย`, 'success');
+      fetchBotStatus(); // อัปเดตรายชื่อสมาชิกเซิร์ฟเวอร์ใหม่
+    } else {
+      addLog(`ไม่สามารถดำเนินการลงโทษได้: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดในการส่งคำสั่งลงโทษ', 'error');
+  } finally {
+    btnExecuteMod.disabled = false;
+  }
+});
+
+// --- แท็บ 6: ระบบเพลง ---
+// โหลดคิวเพลงลง UI
+function updateMusicQueueUI(queue) {
+  playlistQueue.innerHTML = '';
+  if (!queue || queue.length === 0) {
+    playlistQueue.innerHTML = '<li class="empty-list">ไม่มีรายการคิวเพลงขณะนี้ บอทจะหยุดและสแตนด์บาย</li>';
+    return;
+  }
+  
+  queue.forEach((song, idx) => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span>${idx === 0 ? '▶️ <strong>กำลังเล่น:</strong>' : `🎵 #${idx}`} ${song.title}</span>
+      <span class="text-muted">${song.duration}</span>
+    `;
+    playlistQueue.appendChild(li);
+  });
+}
+
+// ปุ่มสั่งเล่นเพลง
+btnMusicPlay.addEventListener('click', async () => {
+  const guildId = globalGuildSelect.value;
+  const voiceChannelId = musicVoiceSelect.value;
+  const query = musicSearch.value.trim();
+  
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+  if (!voiceChannelId) return alert('กรุณาเลือกห้องแชทเสียงที่จะให้บอทเข้า!');
+  if (!query) return alert('กรุณาป้อนลิงก์เพลงหรือคำค้นหา!');
+  
+  addLog(`กำลังสั่งให้บอทรันเพลงและเชื่อมต่อห้องเสียง...`, 'system');
+  btnMusicPlay.disabled = true;
+
+  try {
+    const response = await fetch('/api/music/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, voiceChannelId, query })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`เริ่มเล่นเพลงสำเร็จ: ${result.title}`, 'success');
+      musicSearch.value = '';
+      fetchBotStatus();
+    } else {
+      addLog(`เกิดข้อผิดพลาดในการเล่นเพลง: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('ไม่สามารถสั่งรันเพลงได้', 'error');
+  } finally {
+    btnMusicPlay.disabled = false;
+  }
+});
+
+// ปุ่มพักเพลงชั่วคราว
+btnMusicPause.addEventListener('click', async () => {
+  const guildId = globalGuildSelect.value;
+  if (!guildId) return;
+  
+  addLog('กำลังส่งคำขอสลับสถานะ เล่น/หยุดชั่วคราว...', 'system');
+  try {
+    const response = await fetch('/api/music/pause', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId })
+    });
+    if (response.ok) {
+      addLog('สลับสถานะ เล่น/หยุดคิวเพลงชั่วคราว สำเร็จ', 'success');
+    }
+  } catch (error) {
+    console.error('พักเพลงล้มเหลว:', error);
+  }
+});
+
+// ปุ่มหยุดเล่นและออกจากห้องเสียง
+btnMusicStop.addEventListener('click', async () => {
+  const guildId = globalGuildSelect.value;
+  if (!guildId) return;
+  
+  addLog('กำลังสั่งให้บอทล้างคิวเพลงและออกจากห้องเสียง...', 'system');
+  try {
+    const response = await fetch('/api/music/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId })
+    });
+    if (response.ok) {
+      addLog('หยุดเล่นและออกจากห้องเสียงเรียบร้อยแล้ว', 'success');
+      fetchBotStatus();
+    }
+  } catch (error) {
+    console.error('หยุดเล่นเพลงล้มเหลว:', error);
+  }
+});
+
+// --- ทำงานทันทีเมื่อโหลดหน้าเว็บ ---
+addLog('กำลังโหลดข้อมูลแผงควบคุมหลัก...', 'system');
+fetchBotStatus();
+fetchLogs();
+fetchCustomCommands();
+
+// รันลูปดึงข้อมูลทุกๆ 2.5 วินาที
+setInterval(() => {
+  fetchBotStatus();
+  fetchLogs();
+}, 2500);

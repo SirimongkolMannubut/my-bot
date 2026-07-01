@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord Bot All-in-One Dashboard</title>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- CSS Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon">🤖</span>
+        <div>
+          <h1>Discord Bot Dashboard</h1>
+          <p class="brand-subtitle">แผงควบคุมบอทและฐานข้อมูล MongoDB แบบครบวงจร</p>
+        </div>
+      </div>
+      
+      <div class="header-right">
+        <!-- Global Guild Selector -->
+        <div class="global-guild-selector">
+          <label for="global-guild-select">เลือกเซิร์ฟเวอร์ควบคุม:</label>
+          <select id="global-guild-select" class="custom-select">
+            <option value="">-- ดึงข้อมูลเซิร์ฟเวอร์... --</option>
+          </select>
+        </div>
+        
+        <div class="status-indicator">
+          <span id="bot-status" class="status-badge offline">
+            <span class="status-dot"></span>
+            <span class="status-text">Offline</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-navigation">
+      <button class="tab-btn active" data-tab="tab-home">📊 หน้าแรก & Logs</button>
+      <button class="tab-btn" data-tab="tab-channels">📁 จัดการห้อง (Channels)</button>
+      <button class="tab-btn" data-tab="tab-welcome">👋 ระบบต้อนรับ/บอกลา</button>
+      <button class="tab-btn" data-tab="tab-commands">💬 คำสั่งพิเศษ (Custom)</button>
+      <button class="tab-btn" data-tab="tab-moderation">🛡️ จัดการสมาชิก (Admin)</button>
+      <button class="tab-btn" data-tab="tab-music">🎵 เครื่องเล่นเพลง (Music)</button>
+    </nav>
+
+    <!-- Tab Panels Container -->
+    <main class="tab-content">
+      
+      <!-- TAB 1: HOME & GENERAL SETTINGS & LOGS -->
+      <div id="tab-home" class="tab-panel active">
+        <div class="dashboard-grid">
+          <!-- Stats Panel -->
+          <div class="card stats-card-grid">
+            <div class="stat-box">
+              <span class="stat-val" id="stat-ping">- ms</span>
+              <span class="stat-lbl">ค่าความหน่วง (Ping)</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-val" id="stat-servers">-</span>
+              <span class="stat-lbl">จำนวนเซิร์ฟเวอร์</span>
+            </div>
+          </div>
+
+          <!-- General Settings -->
+          <div class="card settings-card">
+            <h2>ตั้งค่าบอททั่วไป</h2>
+            <form id="general-settings-form">
+              <div class="form-group">
+                <label for="bot-prefix">Prefix ของคำสั่ง</label>
+                <input type="text" id="bot-prefix" class="custom-input" placeholder="เช่น !" value="!">
+              </div>
+              <div class="form-group">
+                <label for="bot-activity">สถานะบอท (Activity)</label>
+                <input type="text" id="bot-activity" class="custom-input" placeholder="เช่น กำลังเล่น !ping">
+              </div>
+              <button type="submit" class="btn btn-success">
+                <span class="btn-icon">💾</span> บันทึกการตั้งค่าลง MongoDB
+              </button>
+            </form>
+          </div>
+
+          <!-- Rolling Live Logs -->
+          <div class="card logs-card full-width">
+            <div class="card-header-actions">
+              <h2>ประวัติการทำงานเรียลไทม์ (Logs)</h2>
+              <button id="btn-clear-logs" class="btn btn-sm btn-outline">ล้างหน้าจอ</button>
+            </div>
+            <div id="logs-container" class="logs-container">
+              <div class="log-entry system">ระบบ: กำลังเชื่อมต่อบอท...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: CHANNEL CREATION & MANAGEMENT -->
+      <div id="tab-channels" class="tab-panel">
+        <div class="card">
+          <h2>สร้างห้องข้อความหรือห้องเสียงใหม่ (Channel Creator)</h2>
+          <p class="section-desc">สั่งสร้างห้องในเซิร์ฟเวอร์ของคุณได้ทันทีผ่านเว็บไซต์ (บอทต้องมีสิทธิ์ Manage Channels)</p>
+          
+          <form id="channel-create-form" class="standard-form">
+            <div class="form-group">
+              <label for="new-channel-name">ชื่อห้องที่ต้องการสร้าง</label>
+              <input type="text" id="new-channel-name" class="custom-input" placeholder="เช่น ห้องทดสอบ-บอท" required>
+            </div>
+            <div class="form-group">
+              <label for="new-channel-type">ประเภทห้อง</label>
+              <select id="new-channel-type" class="custom-select">
+                <option value="text">💬 ห้องข้อความ (Text Channel)</option>
+                <option value="voice">🔊 ห้องเสียง (Voice Channel)</option>
+              </select>
+            </div>
+            <button type="submit" id="btn-create-channel" class="btn btn-primary" disabled>
+              <span class="btn-icon">➕</span> สร้างห้องในเซิร์ฟเวอร์
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- TAB 3: WELCOME & LEAVE NOTIFICATION SYSTEM -->
+      <div id="tab-welcome" class="tab-panel">
+        <div class="card">
+          <h2>ระบบส่งข้อความแจ้งเตือนคนเข้า-ออก (Welcome & Leave Messages)</h2>
+          <p class="section-desc">ตั้งค่าบอทให้แท็กคนเข้าใหม่ หรือแจ้งลาเมื่อคนออก และส่งเข้าช่องแชทเฉพาะที่ต้องการ</p>
+          
+          <form id="welcome-settings-form" class="standard-form">
+            
+            <!-- Welcome Configuration -->
+            <div class="setting-section">
+              <div class="section-header">
+                <h3>👋 ข้อความต้อนรับคนเข้าใหม่ (Welcome Message)</h3>
+                <label class="switch">
+                  <input type="checkbox" id="welcome-enabled">
+                  <span class="slider round"></span>
+                </label>
+              </div>
+              
+              <div class="form-group">
+                <label for="welcome-channel-select">ช่องข้อความที่จะส่งระบบต้อนรับ</label>
+                <select id="welcome-channel-select" class="custom-select" disabled>
+                  <option value="">-- เลือกห้องข้อความ --</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="welcome-message-input">เทมเพลตข้อความต้อนรับ</label>
+                <textarea id="welcome-message-input" class="custom-textarea" rows="2" placeholder="ใช้ {user} แทนการแท็กชื่อผู้ใช้เข้าใหม่" disabled></textarea>
+              </div>
+            </div>
+
+            <!-- Leave Configuration -->
+            <div class="setting-section border-top">
+              <div class="section-header">
+                <h3>😢 ข้อความแจ้งเตือนคนออกเซิร์ฟ (Leave Message)</h3>
+                <label class="switch">
+                  <input type="checkbox" id="leave-enabled">
+                  <span class="slider round"></span>
+                </label>
+              </div>
+              
+              <div class="form-group">
+                <label for="leave-channel-select">ช่องข้อความที่จะส่งระบบแจ้งลา</label>
+                <select id="leave-channel-select" class="custom-select" disabled>
+                  <option value="">-- เลือกห้องข้อความ --</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="leave-message-input">เทมเพลตข้อความแจ้งลา</label>
+                <textarea id="leave-message-input" class="custom-textarea" rows="2" placeholder="ใช้ {user} สำหรับแสดงชื่อผู้ใช้ที่ออก" disabled></textarea>
+              </div>
+            </div>
+
+            <button type="submit" id="btn-save-welcome" class="btn btn-success" disabled>
+              <span class="btn-icon">💾</span> บันทึกระบบต้อนรับลง MongoDB
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- TAB 4: CUSTOM COMMANDS MANAGER -->
+      <div id="tab-commands" class="tab-panel">
+        <div class="card-grid-two">
+          <!-- Form to add command -->
+          <div class="card">
+            <h2>เพิ่มคำสั่งตอบกลับพิเศษ</h2>
+            <form id="custom-command-form">
+              <div class="form-group">
+                <label for="cmd-name">ชื่อคำสั่ง (ไม่ต้องใส่ prefix เช่น web, rules)</label>
+                <input type="text" id="cmd-name" class="custom-input" placeholder="เช่น rules" required>
+              </div>
+              <div class="form-group">
+                <label for="cmd-response">ข้อความที่ให้บอทตอบกลับ</label>
+                <textarea id="cmd-response" class="custom-textarea" rows="4" placeholder="กรอกคำอธิบายหรือเนื้อหาสำหรับคำสั่งนี้..." required></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <span class="btn-icon">➕</span> เพิ่มคำสั่งลง MongoDB
+              </button>
+            </form>
+          </div>
+
+          <!-- List of custom commands -->
+          <div class="card">
+            <h2>รายการคำสั่งพิเศษทั้งหมด</h2>
+            <div class="table-container">
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>คำสั่ง</th>
+                    <th>คำตอบกลับ</th>
+                    <th class="text-right">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="commands-table-body">
+                  <tr>
+                    <td colspan="3" class="text-center text-muted">กำลังโหลดข้อมูลคำสั่งพิเศษ...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: MEMBERS MODERATION PANEL -->
+      <div id="tab-moderation" class="tab-panel">
+        <div class="card">
+          <h2>จัดการและลงโทษสมาชิก (Server Moderation)</h2>
+          <p class="section-desc">สั่งเตะ แบน หรือจำกัดคำพูดสมาชิกผ่านแผงควบคุมหน้าเว็บ (บอทต้องมียศสูงกว่าเป้าหมายและมีสิทธิ์ Kick/Ban/Moderate)</p>
+          
+          <form id="moderation-form" class="standard-form">
+            <div class="form-group">
+              <label for="mod-member-select">เลือกสมาชิกที่จะจัดการ</label>
+              <select id="mod-member-select" class="custom-select" disabled>
+                <option value="">-- เลือกเซิร์ฟเวอร์ด้านบนก่อน --</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="mod-action-select">การลงโทษ</label>
+              <select id="mod-action-select" class="custom-select" disabled>
+                <option value="kick">👢 เตะออกจากเซิร์ฟเวอร์ (Kick)</option>
+                <option value="ban">🔨 แบนถาวร (Ban)</option>
+                <option value="timeout">⏳ ใบ้ชั่วคราว / จำกัดแชท (Timeout - 10 นาที)</option>
+              </select>
+            </div>
+
+            <button type="submit" id="btn-execute-mod" class="btn btn-danger" disabled>
+              <span class="btn-icon">⚠️</span> ดำเนินการลงโทษสมาชิก
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- TAB 6: MUSIC PLAYER CONTROLLER -->
+      <div id="tab-music" class="tab-panel">
+        <div class="card-grid-two">
+          <!-- Audio controller -->
+          <div class="card">
+            <h2>เครื่องเล่นเสียงเพลง (Voice Client Control)</h2>
+            
+            <div class="form-group">
+              <label for="music-voice-select">เลือกห้องเสียงที่จะให้บอทเข้า</label>
+              <select id="music-voice-select" class="custom-select" disabled>
+                <option value="">-- เลือกเซิร์ฟเวอร์ด้านบนก่อน --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="music-search">ป้อน URL ไฟล์เสียง หรือลิงก์เพลงที่ต้องการรัน</label>
+              <input type="text" id="music-search" class="custom-input" placeholder="เช่น ลิงก์ไฟล์เสียง .mp3 หรือสตรีมออนไลน์" disabled>
+            </div>
+
+            <div class="music-controls">
+              <button id="btn-music-play" class="btn btn-primary" disabled>▶️ เล่นเพลง (Play)</button>
+              <button id="btn-music-pause" class="btn btn-outline" disabled>⏸️ พักชั่วคราว (Pause)</button>
+              <button id="btn-music-stop" class="btn btn-danger" disabled>⏹️ หยุด & ออก (Stop)</button>
+            </div>
+          </div>
+
+          <!-- Playlist / Queue -->
+          <div class="card">
+            <h2>รายการคิวเพลงปัจจุบัน</h2>
+            <div class="playlist-container">
+              <ul id="playlist-queue" class="playlist-queue">
+                <li class="empty-list">ไม่มีรายการคิวเพลงขณะนี้ บอทจะหยุดและสแตนด์บาย</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>ระบบ All-in-One Discord Web Control Panel | พัฒนาด้วย Node.js, Express, Discord.js v14 และ MongoDB 🍃</p>
+    </footer>
+  </div>
+
+  <!-- JavaScript Client -->
+  <script src="app.js"></script>
+</body>
+</html>
