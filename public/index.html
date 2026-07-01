@@ -49,6 +49,7 @@
       <button class="tab-btn" data-tab="tab-commands">💬 คำสั่งพิเศษ (Custom)</button>
       <button class="tab-btn" data-tab="tab-moderation">🛡️ จัดการสมาชิก (Admin)</button>
       <button class="tab-btn" data-tab="tab-music">🎵 เครื่องเล่นเพลง (Music)</button>
+      <button class="tab-btn" data-tab="tab-roles">🛡️ จัดการบทบาท (Roles)</button>
     </nav>
 
     <!-- Tab Panels Container -->
@@ -111,16 +112,44 @@
               <label for="new-channel-name">ชื่อห้องที่ต้องการสร้าง</label>
               <input type="text" id="new-channel-name" class="custom-input" placeholder="เช่น ห้องทดสอบ-บอท" required>
             </div>
-            <div class="form-group">
-              <label for="new-channel-type">ประเภทห้อง</label>
-              <select id="new-channel-type" class="custom-select">
-                <option value="text">💬 ห้องข้อความ (Text Channel)</option>
-                <option value="voice">🔊 ห้องเสียง (Voice Channel)</option>
-              </select>
-            </div>
-            <button type="submit" id="btn-create-channel" class="btn btn-primary" disabled>
-              <span class="btn-icon">➕</span> สร้างห้องในเซิร์ฟเวอร์
-            </button>
+             <div class="form-group">
+               <label for="new-channel-type">ประเภทห้อง</label>
+               <select id="new-channel-type" class="custom-select">
+                 <option value="text">💬 ห้องข้อความ (Text Channel)</option>
+                 <option value="voice">🔊 ห้องเสียง (Voice Channel)</option>
+               </select>
+             </div>
+             
+             <div class="form-group">
+               <label for="new-channel-parent">โซน / หมวดหมู่ที่จะสร้าง (Category Parent)</label>
+               <select id="new-channel-parent" class="custom-select" disabled>
+                 <option value="">-- ไม่จัดเข้าหมวดหมู่ (อยู่นอกสุด) --</option>
+               </select>
+             </div>
+
+             <div class="form-group">
+               <label>สิทธิ์และการตั้งค่าห้องพิเศษ:</label>
+               <div class="permission-checkbox-group" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                 <label class="checkbox-container" style="display: flex; align-items: center; gap: 0.5rem;">
+                   <input type="checkbox" id="new-channel-private" disabled>
+                   <span>🔒 ห้องส่วนตัว (Private - เฉพาะทีมงานและบอท)</span>
+                 </label>
+                 
+                 <label class="checkbox-container" style="display: flex; align-items: center; gap: 0.5rem;">
+                   <input type="checkbox" id="new-channel-readonly" disabled>
+                   <span>📝 ห้องอ่านอย่างเดียว (Read-Only - พิมพ์ไม่ได้ ยกเว้นแอดมิน)</span>
+                 </label>
+
+                 <label class="checkbox-container" style="display: flex; align-items: center; gap: 0.5rem;">
+                   <input type="checkbox" id="new-channel-muted" disabled>
+                   <span>🔇 ห้องเสียงแบบปิดไมค์ผู้เข้า (Muted Voice - พูดไม่ได้ในห้องเสียง)</span>
+                 </label>
+               </div>
+             </div>
+
+             <button type="submit" id="btn-create-channel" class="btn btn-primary" disabled>
+               <span class="btn-icon">➕</span> สร้างห้องในเซิร์ฟเวอร์
+             </button>
           </form>
         </div>
       </div>
@@ -273,13 +302,14 @@
             </div>
 
             <div class="form-group">
-              <label for="music-search">ป้อน URL ไฟล์เสียง หรือลิงก์เพลงที่ต้องการรัน</label>
-              <input type="text" id="music-search" class="custom-input" placeholder="เช่น ลิงก์ไฟล์เสียง .mp3 หรือสตรีมออนไลน์" disabled>
+              <label for="music-search">ป้อน URL หรือชื่อเพลงที่ต้องการค้นหาบน YouTube</label>
+              <input type="text" id="music-search" class="custom-input" placeholder="ป้อนชื่อเพลง หรือวางลิงก์ YouTube..." disabled>
             </div>
 
-            <div class="music-controls">
+            <div class="music-controls" style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
               <button id="btn-music-play" class="btn btn-primary" disabled>▶️ เล่นเพลง (Play)</button>
-              <button id="btn-music-pause" class="btn btn-outline" disabled>⏸️ พักชั่วคราว (Pause)</button>
+              <button id="btn-music-fav" class="btn btn-outline" style="color: #facc15; border-color: rgba(250, 204, 21, 0.4);" disabled>⭐ บันทึกเพลงโปรด (Save)</button>
+              <button id="btn-music-pause" class="btn btn-outline" disabled>⏸️ พัก/เล่นต่อ (Pause)</button>
               <button id="btn-music-stop" class="btn btn-danger" disabled>⏹️ หยุด & ออก (Stop)</button>
             </div>
           </div>
@@ -291,6 +321,100 @@
               <ul id="playlist-queue" class="playlist-queue">
                 <li class="empty-list">ไม่มีรายการคิวเพลงขณะนี้ บอทจะหยุดและสแตนด์บาย</li>
               </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+          <h2>⭐ เพลงโปรดประจำเซิร์ฟเวอร์ (Server Favorites - บันทึกในคลัง MongoDB)</h2>
+          <p class="section-desc">รายชื่อเพลงโปรดที่คนในเซิร์ฟบันทึกเก็บไว้ สามารถกดเล่นคิวได้ทันทีโดยไม่ต้องไปค้นใหม่</p>
+          <div class="playlist-container" style="height: 300px;">
+            <ul id="favorites-queue" class="playlist-queue">
+              <li class="empty-list">ไม่มีเพลงโปรดจัดเก็บอยู่ขณะนี้ ลองพิมพ์เพลงแล้วกดบันทึกเพลงโปรดได้เลย!</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 7: DISCORD ROLES MANAGEMENT -->
+      <div id="tab-roles" class="tab-panel">
+        <div class="card-grid-two">
+          <!-- Create Role Card -->
+          <div class="card">
+            <h2>สร้างบทบาทยศใหม่ (Role Creator)</h2>
+            <p class="section-desc">เพิ่มบทบาทการจัดการหรือสิทธิ์ตำแหน่งใหม่ลงเซิร์ฟเวอร์แบบกำหนดพรีเซต</p>
+            
+            <form id="role-create-form" class="standard-form">
+              <div class="form-group">
+                <label for="new-role-name">ชื่อบทบาท / ยศ</label>
+                <input type="text" id="new-role-name" class="custom-input" placeholder="เช่น ยศสตาฟ, แฟนพันธุ์แท้" required disabled>
+              </div>
+
+              <div class="form-group">
+                <label for="new-role-color">เลือกสีประจำยศ</label>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                  <input type="color" id="new-role-color" value="#99aab5" class="custom-color-picker" style="background: none; border: none; width: 45px; height: 45px; cursor: pointer; padding: 0;" disabled>
+                  <span id="role-color-hex" class="text-muted">#99aab5</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="new-role-preset">เลือกพรีเซตสิทธิ์การใช้งาน (Role Presets)</label>
+                <select id="new-role-preset" class="custom-select" disabled>
+                  <option value="custom">⚙️ สิทธิ์ว่าง (Custom / Empty)</option>
+                  <option value="admin">👑 ผู้ดูแลระบบสูงสุด (Administrator)</option>
+                  <option value="mod">👮 ผู้จัดการความสงบ (Moderator)</option>
+                  <option value="dj">🎧 ผู้ควบคุมเพลง (DJ / Music Controller)</option>
+                  <option value="member">👤 สมาชิกทั่วไป (General Member)</option>
+                </select>
+                <p class="checkbox-desc">สิทธิ์การใช้งานจะถูกเซ็ตในดีฟอลต์พรีเซตให้อัตโนมัติใน Discord</p>
+              </div>
+
+              <div class="form-group">
+                <label>การแสดงผลบทบาท:</label>
+                <div class="permission-checkbox-group">
+                  <label class="checkbox-container">
+                    <input type="checkbox" id="new-role-hoist" disabled>
+                    <span class="checkmark"></span>
+                    แสดงแยกหมวดหมู่ในแถบสมาชิก (Hoist Role)
+                    <p class="checkbox-desc">เมื่อเปิด ยศนี้จะถูกเรียงแยกกลุ่มให้ชัดเจนด้านขวามือของห้องดิส</p>
+                  </label>
+                  
+                  <label class="checkbox-container">
+                    <input type="checkbox" id="new-role-mentionable" disabled>
+                    <span class="checkmark"></span>
+                    อนุญาตให้ทุกคนกล่าวถึงยศนี้ (Mentionable Role)
+                    <p class="checkbox-desc">เมื่อเปิด สมาชิกทุกคนในห้องจะสามารถแท็ก @ยศนี้ ได้ปกติ</p>
+                  </label>
+                </div>
+              </div>
+
+              <button type="submit" id="btn-create-role" class="btn btn-primary" disabled>
+                <span class="btn-icon">🛡️</span> สร้างบทบาทยศใหม่
+              </button>
+            </form>
+          </div>
+
+          <!-- Roles List Card -->
+          <div class="card">
+            <h2>สิทธิ์บทบาทยศทั้งหมดในเซิร์ฟเวอร์</h2>
+            <p class="section-desc">แสดงบทบาทยศทั้งหมดโดยเรียงจากลำดับขั้นสูงสุด (บอทจะลบได้เฉพาะยศที่ต่ำกว่ายศสูงสุดของตนเอง)</p>
+            <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>ชื่อบทบาทยศ</th>
+                    <th>สิทธิ์สูงสุด</th>
+                    <th>แสดงแยก</th>
+                    <th class="text-right">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="roles-list-body">
+                  <tr>
+                    <td colspan="4" class="text-center text-muted">กรุณาเลือกเซิร์ฟเวอร์เพื่อดึงข้อมูลบทบาท</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

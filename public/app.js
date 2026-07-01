@@ -27,6 +27,10 @@ const btnClearLogs = document.getElementById('btn-clear-logs');
 const channelCreateForm = document.getElementById('channel-create-form');
 const newChannelName = document.getElementById('new-channel-name');
 const newChannelType = document.getElementById('new-channel-type');
+const newChannelParent = document.getElementById('new-channel-parent');
+const newChannelPrivate = document.getElementById('new-channel-private');
+const newChannelReadonly = document.getElementById('new-channel-readonly');
+const newChannelMuted = document.getElementById('new-channel-muted');
 const btnCreateChannel = document.getElementById('btn-create-channel');
 
 // แท็บ 3: ข้อความต้อนรับ (Welcome)
@@ -55,9 +59,22 @@ const btnExecuteMod = document.getElementById('btn-execute-mod');
 const musicVoiceSelect = document.getElementById('music-voice-select');
 const musicSearch = document.getElementById('music-search');
 const btnMusicPlay = document.getElementById('btn-music-play');
+const btnMusicFav = document.getElementById('btn-music-fav');
 const btnMusicPause = document.getElementById('btn-music-pause');
 const btnMusicStop = document.getElementById('btn-music-stop');
 const playlistQueue = document.getElementById('playlist-queue');
+const favoritesQueue = document.getElementById('favorites-queue');
+
+// แท็บ 7: จัดการบทบาท (Roles)
+const roleCreateForm = document.getElementById('role-create-form');
+const newRoleName = document.getElementById('new-role-name');
+const newRoleColor = document.getElementById('new-role-color');
+const roleColorHex = document.getElementById('role-color-hex');
+const newRolePreset = document.getElementById('new-role-preset');
+const newRoleHoist = document.getElementById('new-role-hoist');
+const newRoleMentionable = document.getElementById('new-role-mentionable');
+const btnCreateRole = document.getElementById('btn-create-role');
+const rolesListBody = document.getElementById('roles-list-body');
 
 // --- ระบบบันทึก Logs บนหน้าเว็บ ---
 function addLog(text, type = 'system') {
@@ -155,6 +172,11 @@ function disableGuildDependentControls() {
   // แท็บ 2: ห้อง
   newChannelName.disabled = true;
   newChannelType.disabled = true;
+  newChannelParent.innerHTML = '<option value="">-- ไม่จัดเข้าหมวดหมู่ (อยู่นอกสุด) --</option>';
+  newChannelParent.disabled = true;
+  newChannelPrivate.disabled = true;
+  newChannelReadonly.disabled = true;
+  newChannelMuted.disabled = true;
   btnCreateChannel.disabled = true;
   
   // แท็บ 3: ต้อนรับ
@@ -175,8 +197,19 @@ function disableGuildDependentControls() {
   musicVoiceSelect.disabled = true;
   musicSearch.disabled = true;
   btnMusicPlay.disabled = true;
+  btnMusicFav.disabled = true;
   btnMusicPause.disabled = true;
   btnMusicStop.disabled = true;
+  favoritesQueue.innerHTML = '<li class="empty-list">กรุณาเลือกเซิร์ฟเวอร์เพื่อดึงข้อมูลคลังเพลงโปรด</li>';
+
+  // แท็บ 7: ยศ
+  newRoleName.disabled = true;
+  newRoleColor.disabled = true;
+  newRolePreset.disabled = true;
+  newRoleHoist.disabled = true;
+  newRoleMentionable.disabled = true;
+  btnCreateRole.disabled = true;
+  rolesListBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">กรุณาเลือกเซิร์ฟเวอร์เพื่อดึงข้อมูลบทบาท</td></tr>';
 }
 
 // อัปเดตรายชื่อเซิร์ฟเวอร์
@@ -242,7 +275,21 @@ function enableGuildDependentControls(guildId) {
   // แท็บ 2: ห้อง
   newChannelName.disabled = false;
   newChannelType.disabled = false;
+  newChannelPrivate.disabled = false;
+  newChannelReadonly.disabled = false;
+  newChannelMuted.disabled = false;
   btnCreateChannel.disabled = false;
+
+  newChannelParent.innerHTML = '<option value="">-- ไม่จัดเข้าหมวดหมู่ (อยู่นอกสุด) --</option>';
+  newChannelParent.disabled = false;
+  if (guild.categories && guild.categories.length > 0) {
+    guild.categories.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat.id;
+      opt.text = `📁 ${cat.name}`;
+      newChannelParent.add(opt);
+    });
+  }
 
   // แท็บ 3: ต้อนรับ
   welcomeEnabledCheck.disabled = false;
@@ -304,6 +351,7 @@ function enableGuildDependentControls(guildId) {
     musicVoiceSelect.disabled = false;
     musicSearch.disabled = false;
     btnMusicPlay.disabled = false;
+    btnMusicFav.disabled = false;
     btnMusicPause.disabled = false;
     btnMusicStop.disabled = false;
     
@@ -322,12 +370,25 @@ function enableGuildDependentControls(guildId) {
     musicVoiceSelect.disabled = true;
     musicSearch.disabled = true;
     btnMusicPlay.disabled = true;
+    btnMusicFav.disabled = true;
     btnMusicPause.disabled = true;
     btnMusicStop.disabled = true;
   }
 
+  // แท็บ 7: ยศ (Roles)
+  newRoleName.disabled = false;
+  newRoleColor.disabled = false;
+  newRolePreset.disabled = false;
+  newRoleHoist.disabled = false;
+  newRoleMentionable.disabled = false;
+  btnCreateRole.disabled = false;
+
   // ดึงคิวเพลงเซิร์ฟเวอร์
   updateMusicQueueUI(guild.musicQueue || []);
+
+  // ดึงข้อมูลเพลงโปรดประจำเซิร์ฟเวอร์ และ บทบาทยศ
+  fetchAndRenderFavorites(guildId);
+  fetchAndRenderRoles(guildId);
 }
 
 // สวิตช์เปิด-ปิดช่องป้อนระบบต้อนรับคนเข้า/ออก
@@ -672,6 +733,245 @@ btnMusicStop.addEventListener('click', async () => {
     }
   } catch (error) {
     console.error('หยุดเล่นเพลงล้มเหลว:', error);
+  }
+});
+
+// ปรับสีและรหัสสี HEX แบบสด
+newRoleColor.addEventListener('input', () => {
+  roleColorHex.innerText = newRoleColor.value.toUpperCase();
+});
+
+// --- ระบบคลังเพลงโปรดประจำเซิร์ฟเวอร์ (Saved Playlists) ---
+async function fetchAndRenderFavorites(guildId) {
+  if (!guildId) return;
+  try {
+    const response = await fetch(`/api/music/favorites?guildId=${guildId}`);
+    if (response.ok) {
+      const favorites = await response.json();
+      renderFavoritesList(guildId, favorites);
+    }
+  } catch (error) {
+    console.error('โหลดเพลงโปรดล้มเหลว:', error);
+  }
+}
+
+function renderFavoritesList(guildId, favorites) {
+  favoritesQueue.innerHTML = '';
+  if (!favorites || favorites.length === 0) {
+    favoritesQueue.innerHTML = '<li class="empty-list">ไม่มีเพลงโปรดจัดเก็บอยู่ขณะนี้ ลองพิมพ์เพลงแล้วกดบันทึกเพลงโปรดได้เลย!</li>';
+    return;
+  }
+
+  favorites.forEach(song => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 0.15rem;">
+        <span style="font-weight: 600;">${song.title}</span>
+        <span style="font-size: 0.75rem; color: var(--text-secondary);">ความยาว: ${song.duration}</span>
+      </div>
+      <div class="favorite-actions">
+        <button class="btn-icon-only btn-play-fav" title="เล่นทันที" data-url="${song.url}" data-title="${song.title}">▶️</button>
+        <button class="btn-icon-only btn-remove-fav" title="ลบจากคลัง" data-id="${song._id}">❌</button>
+      </div>
+    `;
+
+    // ปุ่มกดเล่นสตรีมเพลงโปรด
+    li.querySelector('.btn-play-fav').addEventListener('click', async (e) => {
+      const btn = e.target;
+      const url = btn.getAttribute('data-url');
+      const title = btn.getAttribute('data-title');
+      const voiceChannelId = musicVoiceSelect.value;
+      if (!voiceChannelId) return alert('กรุณาเลือกห้องเสียงที่จะให้บอทเข้าก่อน!');
+      
+      addLog(`กำลังเรียกสตรีมเพลงโปรดจากคลัง: "${title}"`, 'system');
+      try {
+        const playRes = await fetch('/api/music/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guildId, voiceChannelId, query: url })
+        });
+        if (playRes.ok) {
+          const resObj = await playRes.json();
+          addLog(`เริ่มเล่นเพลงสำเร็จ: ${resObj.title}`, 'success');
+          fetchBotStatus();
+        } else {
+          const errObj = await playRes.json();
+          addLog(`เกิดข้อผิดพลาด: ${errObj.error}`, 'error');
+        }
+      } catch (err) {
+        addLog('ไม่สามารถสั่งรันเพลงได้', 'error');
+      }
+    });
+
+    // ปุ่มลบเพลงโปรดออกจากคลัง
+    li.querySelector('.btn-remove-fav').addEventListener('click', async (e) => {
+      const btn = e.target;
+      const id = btn.getAttribute('data-id');
+      if (!confirm('ต้องการลบเพลงนี้ออกจากรายการเพลงโปรดของเซิร์ฟใช่หรือไม่?')) return;
+
+      try {
+        const delRes = await fetch(`/api/music/favorites?id=${id}`, {
+          method: 'DELETE'
+        });
+        if (delRes.ok) {
+          addLog('ลบเพลงโปรดออกจากคลังสำเร็จ', 'success');
+          fetchAndRenderFavorites(guildId);
+        }
+      } catch (err) {
+        addLog('ไม่สามารถลบเพลงโปรดได้', 'error');
+      }
+    });
+
+    favoritesQueue.appendChild(li);
+  });
+}
+
+// คลิกบันทึกเพลงโปรด
+btnMusicFav.addEventListener('click', async () => {
+  const guildId = globalGuildSelect.value;
+  const query = musicSearch.value.trim();
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+  if (!query) return alert('กรุณากรอกชื่อเพลงหรือลิงก์ในช่องแชทก่อนบันทึก!');
+
+  addLog(`กำลังนำเข้าและบันทึกเพลงโปรด "${query}" ลงในคลัง...`, 'system');
+  btnMusicFav.disabled = true;
+
+  try {
+    const response = await fetch('/api/music/favorites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, query })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`บันทึกเพลงโปรดสำเร็จ: ${result.song.title}`, 'success');
+      musicSearch.value = '';
+      fetchAndRenderFavorites(guildId);
+    } else {
+      addLog(`ไม่สามารถเซฟเพลงได้: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดขณะเซฟเพลงโปรด', 'error');
+  } finally {
+    btnMusicFav.disabled = false;
+  }
+});
+
+// --- ระบบจัดการบทบาทยศสิทธิ์ใน Discord (Roles Management) ---
+async function fetchAndRenderRoles(guildId) {
+  if (!guildId) return;
+  try {
+    const response = await fetch(`/api/roles?guildId=${guildId}`);
+    if (response.ok) {
+      const roles = await response.json();
+      renderRolesTable(guildId, roles);
+    }
+  } catch (error) {
+    console.error('โหลดข้อมูลบทบาทล้มเหลว:', error);
+  }
+}
+
+function renderRolesTable(guildId, roles) {
+  rolesListBody.innerHTML = '';
+  if (!roles || roles.length === 0) {
+    rolesListBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">ไม่พบบทบาทยศในเซิร์ฟเวอร์นี้</td></tr>';
+    return;
+  }
+
+  roles.forEach(role => {
+    const tr = document.createElement('tr');
+    const colorStyle = role.color === '#000000' ? '#99aab5' : role.color;
+    
+    tr.innerHTML = `
+      <td>
+        <span class="role-badge" style="color: ${colorStyle}; border-color: ${colorStyle}33;">
+          <span class="role-color-dot" style="background-color: ${colorStyle};"></span>
+          ${role.name}
+        </span>
+      </td>
+      <td>
+        <span style="font-size: 0.85rem; color: var(--text-secondary);">${role.position}</span>
+      </td>
+      <td>
+        <span style="font-size: 0.85rem; color: var(--text-secondary);">${role.hoist ? '✅ แยกกลุ่ม' : '❌ รวมกลุ่ม'}</span>
+      </td>
+      <td class="text-right">
+        ${role.editable 
+          ? `<button class="btn btn-danger btn-sm btn-delete-role" data-id="${role.id}" data-name="${role.name}">ลบยศ</button>`
+          : `<span class="text-muted" style="font-size: 0.8rem; font-style: italic;">🔐 บล็อกไว้</span>`
+        }
+      </td>
+    `;
+
+    // ผูกสิทธิ์ลบยศในปุ่ม
+    const delBtn = tr.querySelector('.btn-delete-role');
+    if (delBtn) {
+      delBtn.addEventListener('click', async (e) => {
+        const id = e.target.getAttribute('data-id');
+        const name = e.target.getAttribute('data-name');
+        if (!confirm(`คุณแน่ใจว่าต้องการลบบทบาทยศ "${name}" ออกจากดิสคอร์ดถาวรใช่หรือไม่?`)) return;
+
+        addLog(`กำลังส่งคำขอลบยศ: "${name}"...`, 'system');
+        try {
+          const response = await fetch(`/api/roles?guildId=${guildId}&roleId=${id}`, {
+            method: 'DELETE'
+          });
+          const result = await response.json();
+          if (response.ok) {
+            addLog(`ลบบทบาทยศ "${result.roleName}" สำเร็จ!`, 'success');
+            fetchAndRenderRoles(guildId);
+          } else {
+            addLog(`ไม่สามารถลบยศได้: ${result.error}`, 'error');
+          }
+        } catch (err) {
+          addLog('เกิดข้อผิดพลาดในการลบยศ', 'error');
+        }
+      });
+    }
+
+    rolesListBody.appendChild(tr);
+  });
+}
+
+// ฟอร์มส่งขอสร้างยศใหม่
+roleCreateForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const guildId = globalGuildSelect.value;
+  const name = newRoleName.value.trim();
+  const color = newRoleColor.value;
+  const preset = newRolePreset.value;
+  const hoist = newRoleHoist.checked;
+  const mentionable = newRoleMentionable.checked;
+
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+  if (!name) return alert('กรุณากรอกชื่อยศ!');
+
+  addLog(`กำลังสร้างยศใหม่ "${name}" พร้อมสิทธิ์ตามพรีเซต...`, 'system');
+  btnCreateRole.disabled = true;
+
+  try {
+    const response = await fetch('/api/roles/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, name, color, hoist, mentionable, preset })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`สร้างยศใหม่สำเร็จ: ${result.roleName}`, 'success');
+      newRoleName.value = '';
+      newRoleColor.value = '#99aab5';
+      roleColorHex.innerText = '#99AAB5';
+      newRolePreset.value = 'custom';
+      newRoleHoist.checked = false;
+      newRoleMentionable.checked = false;
+      fetchAndRenderRoles(guildId);
+    } else {
+      addLog(`ไม่สามารถสร้างยศได้: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดในการสั่งสร้างยศ', 'error');
+  } finally {
+    btnCreateRole.disabled = false;
   }
 });
 

@@ -13,8 +13,8 @@ try {
 }
 
 const express = require('express');
-const { Client, GatewayIntentBits, ChannelType, ActivityType } = require('discord.js');
-const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior } = require('@discordjs/voice');
+const { Client, GatewayIntentBits, ChannelType, ActivityType, PermissionFlagsBits } = require('discord.js');
+const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus, NoSubscriberBehavior, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const path = require('path');
 const mongoose = require('mongoose');
 const youtubeDl = require('youtube-dl-exec');
@@ -58,7 +58,8 @@ const settingsSchema = new mongoose.Schema({
   welcomeMessage: { type: String, default: 'ยินดีต้อนรับคุณ {user} เข้าสู่เซิร์ฟเวอร์ของเรา! 🎉' },
   leaveEnabled: { type: Boolean, default: false },
   leaveChannelId: { type: String, default: '' },
-  leaveMessage: { type: String, default: 'คุณ {user} ได้ออกจากเซิร์ฟเวอร์ไปแล้ว ขอให้โชคดีครับ 👋' }
+  leaveMessage: { type: String, default: 'คุณ {user} ได้ออกจากเซิร์ฟเวอร์ไปแล้ว ขอให้โชคดีครับ 👋' },
+  voiceChannelId: { type: String, default: null }
 });
 const Settings = mongoose.model('Settings', settingsSchema);
 
@@ -68,6 +69,17 @@ const customCommandSchema = new mongoose.Schema({
   responseContent: { type: String, required: true }
 });
 const CustomCommand = mongoose.model('CustomCommand', customCommandSchema);
+
+// 3. Saved Song Schema (ระบบคลังเพลงโปรดประจำเซิร์ฟเวอร์)
+const savedSongSchema = new mongoose.Schema({
+  guildId: { type: String, required: true },
+  title: { type: String, required: true },
+  url: { type: String, required: true },
+  duration: { type: String, default: '00:00' },
+  createdAt: { type: Date, default: Date.now }
+});
+const SavedSong = mongoose.model('SavedSong', savedSongSchema);
+
 
 // ฟังก์ชันดึงค่าตั้งค่าของแต่ละกิลด์ (โหลดจาก DB / สร้างถ้ายังไม่มี)
 async function getGuildSettings(guildId) {
@@ -125,6 +137,41 @@ function getGuildAudioPlayer(guildId, connection) {
   connection.subscribe(player);
   audioPlayers.set(guildId, player);
   return player;
+}
+
+function connectToVoice(guild, channel) {
+  const connection = joinVoiceChannel({
+    channelId: channel.id,
+    guildId: guild.id,
+    adapterCreator: guild.voiceAdapterCreator,
+    selfDeaf: true,
+  });
+
+  // ระบบตรวจจับสายหลุดและเชื่อมต่อใหม่ให้แบบ 24/7
+  connection.on('stateChange', async (oldState, newState) => {
+    if (newState.status === VoiceConnectionStatus.Disconnected) {
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5000)
+        ]);
+      } catch (error) {
+        if (connection.state.status === VoiceConnectionStatus.Disconnected) {
+          logEvent(`[24/7 Reconnect] บอทตรวจพบสัญญาณห้องเสียงหลุดในเซิร์ฟ "${guild.name}" กำลังกู้คืนช่องเสียงอัตโนมัติ...`, 'warning');
+          const settings = await getGuildSettings(guild.id);
+          if (settings && settings.voiceChannelId) {
+            const activeCh = guild.channels.cache.get(settings.voiceChannelId);
+            if (activeCh) {
+              connectToVoice(guild, activeCh);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  getGuildAudioPlayer(guild.id, connection);
+  return connection;
 }
 
 async function playNextSong(guildId) {
@@ -203,9 +250,28 @@ const client = new Client({
 });
 
 // บอทออนไลน์สำเร็จ
-client.once('ready', () => {
+client.once('ready', async () => {
   logEvent(`บอทล็อกอินสำเร็จในชื่อ: ${client.user.tag}`, 'success');
   client.user.setActivity(botActivity, { type: ActivityType.Playing });
+
+  // ดึงห้องตั้งค่าทั้งหมดที่มีการระบุห้องเสียง 24/7 ไว้ เพื่อทำการเชื่อมต่อเข้าห้องให้อัตโนมัติ (เช่น หลังรีสตาร์ท / ดีพลอย)
+  try {
+    const activeSettings = await Settings.find({ voiceChannelId: { $ne: null } });
+    for (const setting of activeSettings) {
+      const guild = client.guilds.cache.get(setting.guildId);
+      if (!guild) continue;
+      const channel = guild.channels.cache.get(setting.voiceChannelId);
+      if (!channel) {
+        setting.voiceChannelId = null;
+        await setting.save();
+        continue;
+      }
+      logEvent(`[24/7] กำลังสแตนด์บายเชื่อมต่อเข้าห้องเสียงอัตโนมัติในเซิร์ฟ "${guild.name}" ห้อง "${channel.name}" 🍃`, 'system');
+      connectToVoice(guild, channel);
+    }
+  } catch (err) {
+    console.error('[24/7 Error] ไม่สามารถเชื่อมต่อห้องเสียงตอนเริ่มทำงานได้:', err);
+  }
 });
 
 // เหตุการณ์เมื่อคนเข้าเซิร์ฟเวอร์ (Welcome)
@@ -309,6 +375,10 @@ app.get('/api/status', async (req, res) => {
         .filter(ch => ch.type === ChannelType.GuildVoice)
         .map(ch => ({ id: ch.id, name: ch.name }));
 
+      const categories = guild.channels.cache
+        .filter(ch => ch.type === ChannelType.GuildCategory)
+        .map(ch => ({ id: ch.id, name: ch.name }));
+
       let members = [];
       try {
         const fetched = await guild.members.fetch({ limit: 100 });
@@ -329,6 +399,7 @@ app.get('/api/status', async (req, res) => {
         name: guild.name,
         textChannels,
         voiceChannels,
+        categories,
         members,
         welcomeEnabled: config.welcomeEnabled,
         welcomeChannelId: config.welcomeChannelId,
@@ -515,6 +586,123 @@ app.post('/api/moderation/action', async (req, res) => {
   }
 });
 
+// --- 8.1 ระบบจัดการบทบาท/ยศ (Roles Management) ---
+// ดึงข้อมูลยศทั้งหมดในกิลด์ เรียงจากระดับสูงลงต่ำ
+app.get('/api/roles', async (req, res) => {
+  const { guildId } = req.query;
+  if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
+
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: 'ไม่พบเซิร์ฟเวอร์' });
+
+    const botMember = guild.members.me;
+    const roles = guild.roles.cache.map(role => ({
+      id: role.id,
+      name: role.name,
+      color: role.hexColor,
+      hoist: role.hoist,
+      mentionable: role.mentionable,
+      position: role.position,
+      editable: role.id !== guild.roles.everyone.id && role.comparePositionTo(botMember.roles.highest) < 0
+    })).sort((a, b) => b.position - a.position);
+
+    res.json(roles);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// สร้างยศใหม่ตามพรีเซตสิทธิ์ต่างๆ
+app.post('/api/roles/create', async (req, res) => {
+  const { guildId, name, color, hoist, mentionable, preset } = req.body;
+  if (!guildId || !name) return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
+
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: 'ไม่พบเซิร์ฟเวอร์' });
+
+    // กำหนดสิทธิ์ตาม Preset สิทธิ์ใน Discord
+    let permissions = [];
+    if (preset === 'admin') {
+      permissions = [PermissionFlagsBits.Administrator];
+    } else if (preset === 'mod') {
+      permissions = [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.ManageChannels,
+        PermissionFlagsBits.KickMembers,
+        PermissionFlagsBits.BanMembers,
+        PermissionFlagsBits.ModerateMembers,
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory
+      ];
+    } else if (preset === 'dj') {
+      permissions = [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.Connect,
+        PermissionFlagsBits.Speak,
+        PermissionFlagsBits.UseVAD,
+        PermissionFlagsBits.SendMessages
+      ];
+    } else if (preset === 'member') {
+      permissions = [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.AddReactions,
+        PermissionFlagsBits.Connect,
+        PermissionFlagsBits.Speak,
+        PermissionFlagsBits.ReadMessageHistory
+      ];
+    }
+
+    const newRole = await guild.roles.create({
+      name: name,
+      color: color || '#99aab5',
+      hoist: hoist || false,
+      mentionable: mentionable || false,
+      permissions: permissions,
+      reason: 'สร้างยศผ่านระบบ Web Dashboard'
+    });
+
+    logEvent(`สร้างบทบาทยศสำเร็จ: "${newRole.name}" สี "${color}" พรีเซต "${preset}" ในเซิร์ฟ "${guild.name}"`, 'system');
+    res.json({ success: true, roleName: newRole.name });
+  } catch (error) {
+    logEvent(`สร้างยศไม่สำเร็จ: ${error.message}`, 'error');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ลบยศออกจากดิสคอร์ด
+app.delete('/api/roles', async (req, res) => {
+  const { guildId, roleId } = req.query;
+  if (!guildId || !roleId) return res.status(400).json({ error: 'ข้อมูลระบุไม่ครบถ้วน' });
+
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: 'ไม่พบเซิร์ฟเวอร์' });
+
+    const role = guild.roles.cache.get(roleId);
+    if (!role) return res.status(404).json({ error: 'ไม่พบบทบาทยศนี้' });
+
+    const botMember = guild.members.me;
+    if (role.id === guild.roles.everyone.id) {
+      return res.status(403).json({ error: 'ไม่สามารถลบบทบาท @everyone ได้' });
+    }
+    if (role.comparePositionTo(botMember.roles.highest) >= 0) {
+      return res.status(403).json({ error: 'บทบาทนี้อยู่ระดับสูงกว่าหรือเท่ากับยศสูงสุดของบอท ไม่สามารถลบได้' });
+    }
+
+    const roleName = role.name;
+    await role.delete('ลบบทบาทผ่านแผงควบคุม Dashboard');
+    logEvent(`ลบยศสำเร็จ: "${roleName}" ในเซิร์ฟ "${guild.name}"`, 'system');
+    res.json({ success: true, roleName });
+  } catch (error) {
+    logEvent(`ลบยศไม่สำเร็จ: ${error.message}`, 'error');
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 9. สั่งรันเพลงเข้าห้องแชทเสียง (รองรับเสิร์ชด้วยคำค้นหา และลิงก์ตรง ด้วยความเสถียรของ yt-dlp)
 app.post('/api/music/play', async (req, res) => {
   const { guildId, voiceChannelId, query } = req.body;
@@ -531,12 +719,13 @@ app.post('/api/music/play', async (req, res) => {
       return res.status(404).json({ error: 'ไม่พบช่องเสียงแชท' });
     }
 
-    // ทำการเชื่อมต่อห้องเสียง
-    const connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
-    });
+    // ทำการเชื่อมต่อห้องเสียงและลงทะเบียนลิสเนอร์กู้สาย 24/7
+    const connection = connectToVoice(guild, channel);
+
+    // บันทึกห้องเสียงล่าสุดลงใน MongoDB สำหรับสแตนด์บาย 24/7
+    const settings = await getGuildSettings(guildId);
+    settings.voiceChannelId = voiceChannelId;
+    await settings.save();
 
     logEvent(`กำลังเรียกใช้ yt-dlp เพื่อประมวลผลข้อมูล: "${query}"`, 'system');
 
@@ -632,7 +821,7 @@ app.post('/api/music/pause', (req, res) => {
 });
 
 // ออกจากห้องเสียง & ล้างคิวเพลง
-app.post('/api/music/stop', (req, res) => {
+app.post('/api/music/stop', async (req, res) => {
   const { guildId } = req.body;
   if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
 
@@ -649,7 +838,99 @@ app.post('/api/music/stop', (req, res) => {
     }
     
     musicQueues.delete(guildId);
+
+    // เคลียร์ค่าบันทึก 24/7 เพื่อให้รู้ว่าผู้ใช้สั่งปลดบอทออกจากการเชื่อมต่อถาวรแล้ว
+    const settings = await getGuildSettings(guildId);
+    settings.voiceChannelId = null;
+    await settings.save();
+
     logEvent(`ล้างคิวเพลงและบอทตัดสายออกจากห้องเสียงเรียบร้อย เซิร์ฟ ID: ${guildId}`, 'bot');
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- 10. ระบบจัดเก็บเพลงโปรด (Saved Favorites Playlists) ---
+// ดึงรายการเพลงโปรดทั้งหมดในกิลด์
+app.get('/api/music/favorites', async (req, res) => {
+  const { guildId } = req.query;
+  if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
+
+  try {
+    const songs = await SavedSong.find({ guildId }).sort({ createdAt: -1 });
+    res.json(songs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// บันทึกเพลงโปรดลง MongoDB
+app.post('/api/music/favorites', async (req, res) => {
+  const { guildId, title, url, duration, query } = req.body;
+  if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
+
+  try {
+    let targetTitle = title;
+    let targetUrl = url;
+    let targetDuration = duration;
+
+    // หากส่งคำค้นหามาแทนข้อมูลตรงๆ ให้แปลง/เสิร์ชผ่าน yt-dlp ก่อนเซฟ
+    if (query && (!title || !url)) {
+      logEvent(`กำลังเสิร์ชคลังเพื่อบันทึกเพลงโปรด: "${query}"`, 'system');
+      let targetQuery = query;
+      if (!query.startsWith('http')) {
+        targetQuery = `ytsearch1:${query}`;
+      }
+      const info = await youtubeDl(targetQuery, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCallHome: true,
+        noCheckCertificate: true,
+      });
+      const video = info.entries ? info.entries[0] : info;
+      if (!video) {
+        return res.status(404).json({ error: 'ไม่พบเพลงนี้บน YouTube' });
+      }
+      targetTitle = video.title;
+      targetUrl = video.webpage_url || video.url;
+      const seconds = video.duration || 0;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      targetDuration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    if (!targetTitle || !targetUrl) {
+      return res.status(400).json({ error: 'ข้อมูลระบุไม่ครบถ้วน' });
+    }
+
+    const exists = await SavedSong.findOne({ guildId, url: targetUrl });
+    if (exists) {
+      return res.status(400).json({ error: 'เพลงนี้อยู่ในคลังเพลงโปรดเรียบร้อยแล้ว' });
+    }
+
+    const saved = await SavedSong.create({
+      guildId,
+      title: targetTitle,
+      url: targetUrl,
+      duration: targetDuration
+    });
+    logEvent(`บันทึกเพลงโปรดสำเร็จ: "${targetTitle}" ลงในคลังเซิร์ฟเวอร์ 🍃`, 'system');
+    res.json({ success: true, song: saved });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ลบเพลงโปรดออกจาก MongoDB
+app.delete('/api/music/favorites', async (req, res) => {
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ error: 'ไม่พบ ID เพลงโปรด' });
+
+  try {
+    const deleted = await SavedSong.findByIdAndDelete(id);
+    if (!deleted) return res.status(404).json({ error: 'ไม่พบเพลงโปรดที่ต้องการลบ' });
+    logEvent(`ลบเพลงโปรดสำเร็จ: "${deleted.title}" ออกจากคลังเซิร์ฟเวอร์ 🍃`, 'system');
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
