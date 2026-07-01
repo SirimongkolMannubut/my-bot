@@ -703,6 +703,37 @@ app.delete('/api/roles', async (req, res) => {
   }
 });
 
+// เข้าร่วมห้องเสียงเพื่อสแตนด์บาย 24/7 (โดยยังไม่เล่นเพลง)
+app.post('/api/music/join', async (req, res) => {
+  const { guildId, voiceChannelId } = req.body;
+  if (!guildId || !voiceChannelId) {
+    return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
+  }
+
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: 'ไม่พบเซิร์ฟเวอร์' });
+
+    const channel = guild.channels.cache.get(voiceChannelId);
+    if (!channel || channel.type !== ChannelType.GuildVoice) {
+      return res.status(404).json({ error: 'ไม่พบช่องเสียงแชท' });
+    }
+
+    // เชื่อมต่อห้องเสียงและลงทะเบียนการกู้สาย 24/7
+    connectToVoice(guild, channel);
+
+    // บันทึกห้องเสียงลงฐานข้อมูลสำหรับสแตนด์บายอัตโนมัติ
+    const settings = await getGuildSettings(guildId);
+    settings.voiceChannelId = voiceChannelId;
+    await settings.save();
+
+    logEvent(`บอทเชื่อมต่อเข้าร่วมห้องเสียง "${channel.name}" เพื่อสแตนด์บาย 24/7 เรียบร้อย`, 'bot');
+    res.json({ success: true, channelName: channel.name });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 9. สั่งรันเพลงเข้าห้องแชทเสียง (รองรับเสิร์ชด้วยคำค้นหา และลิงก์ตรง ด้วยความเสถียรของ yt-dlp)
 app.post('/api/music/play', async (req, res) => {
   const { guildId, voiceChannelId, query } = req.body;

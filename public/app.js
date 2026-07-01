@@ -59,6 +59,7 @@ const btnExecuteMod = document.getElementById('btn-execute-mod');
 const musicVoiceSelect = document.getElementById('music-voice-select');
 const musicSearch = document.getElementById('music-search');
 const btnMusicPlay = document.getElementById('btn-music-play');
+const btnMusicJoin = document.getElementById('btn-music-join');
 const btnMusicFav = document.getElementById('btn-music-fav');
 const btnMusicPause = document.getElementById('btn-music-pause');
 const btnMusicStop = document.getElementById('btn-music-stop');
@@ -197,6 +198,7 @@ function disableGuildDependentControls() {
   musicVoiceSelect.disabled = true;
   musicSearch.disabled = true;
   btnMusicPlay.disabled = true;
+  btnMusicJoin.disabled = true;
   btnMusicFav.disabled = true;
   btnMusicPause.disabled = true;
   btnMusicStop.disabled = true;
@@ -351,6 +353,7 @@ function enableGuildDependentControls(guildId) {
     musicVoiceSelect.disabled = false;
     musicSearch.disabled = false;
     btnMusicPlay.disabled = false;
+    btnMusicJoin.disabled = false;
     btnMusicFav.disabled = false;
     btnMusicPause.disabled = false;
     btnMusicStop.disabled = false;
@@ -370,6 +373,7 @@ function enableGuildDependentControls(guildId) {
     musicVoiceSelect.disabled = true;
     musicSearch.disabled = true;
     btnMusicPlay.disabled = true;
+    btnMusicJoin.disabled = true;
     btnMusicFav.disabled = true;
     btnMusicPause.disabled = true;
     btnMusicStop.disabled = true;
@@ -854,6 +858,36 @@ btnMusicFav.addEventListener('click', async () => {
     addLog('เกิดข้อผิดพลาดขณะเซฟเพลงโปรด', 'error');
   } finally {
     btnMusicFav.disabled = false;
+  }
+});
+
+// คลิกเชื่อมต่อเข้าห้องแชทเสียงเพื่อสแตนด์บาย 24/7 (โดยยังไม่รันเพลง)
+btnMusicJoin.addEventListener('click', async () => {
+  const guildId = globalGuildSelect.value;
+  const voiceChannelId = musicVoiceSelect.value;
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+  if (!voiceChannelId) return alert('กรุณาเลือกห้องเสียงแชทที่จะให้บอทเข้าสแตนด์บาย!');
+
+  addLog('กำลังสั่งให้บอทเดินทางเข้าห้องเสียงเพื่อสแตนด์บาย 24/7...', 'system');
+  btnMusicJoin.disabled = true;
+
+  try {
+    const response = await fetch('/api/music/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, voiceChannelId })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`บอทเชื่อมต่อเข้าสแตนด์บายในห้องเสียงสำเร็จ และจะสแตนด์บายตลอด 24/7`, 'success');
+      fetchBotStatus();
+    } else {
+      addLog(`ไม่สามารถเชื่อมต่อห้องเสียงได้: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('เกิดข้อผิดพลาดในการสั่งให้บอทเข้าห้องเสียง', 'error');
+  } finally {
+    btnMusicJoin.disabled = false;
   }
 });
 
