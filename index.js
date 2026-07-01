@@ -205,6 +205,7 @@ async function playNextSong(guildId) {
       noCallHome: true,
       noCheckCertificate: true,
       forceIpv6: true,
+      noPlaylist: true,
     });
 
     const video = info.entries ? info.entries[0] : info;
@@ -774,6 +775,7 @@ app.post('/api/music/play', async (req, res) => {
       noCallHome: true,
       noCheckCertificate: true,
       forceIpv6: true,
+      noPlaylist: true,
     });
 
     const video = info.entries ? info.entries[0] : info;
@@ -921,6 +923,7 @@ app.post('/api/music/favorites', async (req, res) => {
         noCallHome: true,
         noCheckCertificate: true,
         forceIpv6: true,
+        noPlaylist: true,
       });
       const video = info.entries ? info.entries[0] : info;
       if (!video) {
