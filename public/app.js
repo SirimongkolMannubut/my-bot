@@ -59,6 +59,7 @@ const btnExecuteMod = document.getElementById('btn-execute-mod');
 const musicVoiceSelect = document.getElementById('music-voice-select');
 const musicSearch = document.getElementById('music-search');
 const btnMusicPlay = document.getElementById('btn-music-play');
+const btnMusicPlayNow = document.getElementById('btn-music-play-now');
 const btnMusicPlayUrl = document.getElementById('btn-music-play-url');
 const btnMusicJoin = document.getElementById('btn-music-join');
 const btnMusicFav = document.getElementById('btn-music-fav');
@@ -81,7 +82,7 @@ const musicVolumeText = document.getElementById('music-volume-text');
 let selectedSong = null; // { title, url, channel, thumbnail }
 
 // Helper: เล่นเพลงด้วย URL
-async function playMusicQuery(query, displayTitle, duration) {
+async function playMusicQuery(query, displayTitle, duration, playNow = false) {
   const guildId = globalGuildSelect.value;
   const voiceChannelId = musicVoiceSelect.value;
   if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
@@ -90,13 +91,14 @@ async function playMusicQuery(query, displayTitle, duration) {
 
   addLog(`กำลังสั่งให้บอทรันเพลง: "${displayTitle || query}"`, 'system');
   btnMusicPlay.disabled = true;
+  btnMusicPlayNow.disabled = true;
   btnMusicPlayUrl.disabled = true;
 
   try {
     const response = await fetch('/api/music/play', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildId, voiceChannelId, query, title: displayTitle, duration })
+      body: JSON.stringify({ guildId, voiceChannelId, query, title: displayTitle, duration, playNow })
     });
     const result = await response.json();
     if (response.ok) {
@@ -112,6 +114,7 @@ async function playMusicQuery(query, displayTitle, duration) {
     addLog('ไม่สามารถสั่งรันเพลงได้', 'error');
   } finally {
     btnMusicPlay.disabled = false;
+    btnMusicPlayNow.disabled = false;
     btnMusicPlayUrl.disabled = false;
   }
 }
@@ -162,6 +165,7 @@ function selectSong(v) {
   // เปิดปุ่มเล่น
   if (globalGuildSelect.value) {
     btnMusicPlay.disabled = false;
+    btnMusicPlayNow.disabled = false;
     btnMusicFav.disabled = false;
   }
 }
@@ -173,6 +177,7 @@ function clearSearch() {
   nowPlayingBar.style.display = 'none';
   btnClearSearch.style.display = 'none';
   btnMusicPlay.disabled = true;
+  btnMusicPlayNow.disabled = true;
   btnMusicFav.disabled = true;
 }
 
@@ -220,10 +225,16 @@ document.addEventListener('click', (e) => {
 // ปุ่มล้างช่องค้นหา
 btnClearSearch.addEventListener('click', clearSearch);
 
-// ปุ่มเล่นเพลงที่เลือกจาก search
+// ปุ่มเล่นเพลงที่เลือกจาก search (ใส่คิว)
 btnMusicPlay.addEventListener('click', () => {
   if (!selectedSong) return;
-  playMusicQuery(selectedSong.url, selectedSong.title, selectedSong.duration);
+  playMusicQuery(selectedSong.url, selectedSong.title, selectedSong.duration, false);
+});
+
+// ปุ่มเล่นเพลงที่เลือกจาก search (เล่นทันที)
+btnMusicPlayNow.addEventListener('click', () => {
+  if (!selectedSong) return;
+  playMusicQuery(selectedSong.url, selectedSong.title, selectedSong.duration, true);
 });
 
 // ปุ่มเล่นจาก URL โดยตรง
@@ -448,9 +459,11 @@ function disableGuildDependentControls() {
   // แท็บ 6: เพลง
   musicVoiceSelect.disabled = true;
   musicSearch.disabled = true;
-  btnMusicPlay.disabled = true;
-  btnMusicJoin.disabled = true;
   btnMusicFav.disabled = true;
+  btnMusicPlay.disabled = true;
+  btnMusicPlayNow.disabled = true; // Add this
+  btnMusicPlayUrl.disabled = true;
+  btnMusicJoin.disabled = true;
   btnMusicPause.disabled = true;
   btnMusicStop.disabled = true;
   musicAutoplayToggle.disabled = true; 
@@ -608,10 +621,11 @@ function enableGuildDependentControls(guildId) {
   if (guild.voiceChannels && guild.voiceChannels.length > 0) {
     musicVoiceSelect.disabled = false;
     musicSearch.disabled = false;
-    btnMusicPlay.disabled = true; // enabled only when song selected
+    btnMusicFav.disabled = true; // enabled only when song selected
+    btnMusicPlay.disabled = false;
+    btnMusicPlayNow.disabled = false; // Add this
     btnMusicPlayUrl.disabled = false;
     btnMusicJoin.disabled = false;
-    btnMusicFav.disabled = true; // enabled only when song selected
     btnMusicPause.disabled = false;
     btnMusicStop.disabled = false;
     musicAutoplayToggle.disabled = false; // Add this
@@ -631,10 +645,11 @@ function enableGuildDependentControls(guildId) {
     musicVoiceSelect.innerHTML = '<option value="">-- ไม่พบห้องเสียง --</option>';
     musicVoiceSelect.disabled = true;
     musicSearch.disabled = true;
+    btnMusicFav.disabled = true;
     btnMusicPlay.disabled = true;
+    btnMusicPlayNow.disabled = true;
     btnMusicPlayUrl.disabled = true;
     btnMusicJoin.disabled = true;
-    btnMusicFav.disabled = true;
     btnMusicPause.disabled = true;
     btnMusicStop.disabled = true;
     musicAutoplayToggle.disabled = true; // Add this
@@ -1021,7 +1036,7 @@ function renderFavoritesList(guildId, favorites) {
         <span style="font-size: 0.75rem; color: var(--text-secondary);">ความยาว: ${song.duration}</span>
       </div>
       <div class="favorite-actions">
-        <button class="btn-icon-only btn-play-fav" title="เล่นทันที" data-url="${song.url}" data-title="${song.title}">▶️</button>
+        <button class="btn-icon-only btn-play-fav" title="เล่นทันที" data-url="${song.url}" data-title="${song.title}" data-duration="${song.duration}">▶️</button>
         <button class="btn-icon-only btn-remove-fav" title="ลบจากคลัง" data-id="${song._id}">❌</button>
       </div>
     `;
@@ -1031,15 +1046,16 @@ function renderFavoritesList(guildId, favorites) {
       const btn = e.target;
       const url = btn.getAttribute('data-url');
       const title = btn.getAttribute('data-title');
+      const duration = btn.getAttribute('data-duration');
       const voiceChannelId = musicVoiceSelect.value;
       if (!voiceChannelId) return alert('กรุณาเลือกห้องเสียงที่จะให้บอทเข้าก่อน!');
       
-      addLog(`กำลังเรียกสตรีมเพลงโปรดจากคลัง: "${title}"`, 'system');
+      addLog(`กำลังเรียกสตรีมเพลงโปรดจากคลัง (เล่นทันที): "${title}"`, 'system');
       try {
         const playRes = await fetch('/api/music/play', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ guildId, voiceChannelId, query: url })
+          body: JSON.stringify({ guildId, voiceChannelId, query: url, title, duration, playNow: true })
         });
         if (playRes.ok) {
           const resObj = await playRes.json();

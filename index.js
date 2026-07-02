@@ -884,23 +884,42 @@ app.post('/api/music/play', async (req, res) => {
       logEvent(`ได้รับข้อมูลเพลงพร้อมใช้งาน: "${title}"`, 'system');
     }
 
+    const playNow = req.body.playNow;
     const song = { title, url, duration };
     let queue = musicQueues.get(guildId);
     if (!queue) { queue = []; musicQueues.set(guildId, queue); }
-    queue.push(song);
 
-    const player = getGuildAudioPlayer(guildId, connection);
-    if (player.state.status === AudioPlayerStatus.Idle && queue.length === 1) {
-      logEvent(`เริ่มเล่นเพลง: "${song.title}"`, 'bot');
-      lastPlayedSongs.set(guildId, song); // SAVE HERE
-      // pipe yt-dlp โดยตรงเข้า Discord ไม่ต้องดึง CDN URL
+    if (playNow) {
+      if (queue.length > 0) {
+        queue[0] = song; // แทนที่เพลงที่เล่นอยู่ปัจจุบัน
+      } else {
+        queue.push(song);
+      }
+      
+      const player = getGuildAudioPlayer(guildId, connection);
+      logEvent(`[เล่นทันที] กำลังเปลี่ยนมาเล่นเพลง: "${song.title}"`, 'bot');
+      lastPlayedSongs.set(guildId, song);
+      
       const stream = createYtdlpStream(url);
       const resource = createAudioResource(stream, { inlineVolume: true });
       const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
       resource.volume?.setVolume(vol);
       player.play(resource);
     } else {
-      logEvent(`เพิ่มเพลงเข้าคิวลำดับที่: ${queue.length}`, 'bot');
+      // โหมดเข้าคิวปกติ
+      queue.push(song);
+      const player = getGuildAudioPlayer(guildId, connection);
+      if (player.state.status === AudioPlayerStatus.Idle && queue.length === 1) {
+        logEvent(`เริ่มเล่นเพลง: "${song.title}"`, 'bot');
+        lastPlayedSongs.set(guildId, song);
+        const stream = createYtdlpStream(url);
+        const resource = createAudioResource(stream, { inlineVolume: true });
+        const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
+        resource.volume?.setVolume(vol);
+        player.play(resource);
+      } else {
+        logEvent(`เพิ่มเพลงเข้าคิวลำดับที่: ${queue.length}`, 'bot');
+      }
     }
 
     res.json({ success: true, title: song.title });
