@@ -13,7 +13,7 @@ const serversStat = document.getElementById('stat-servers');
 const globalGuildSelect = document.getElementById('global-guild-select');
 
 // เมนูแท็บ
-const tabButtons = document.querySelectorAll('.tab-btn');
+const tabButtons = document.querySelectorAll('.tab-btn, .nav-item');
 const tabPanels = document.querySelectorAll('.tab-panel');
 
 // แท็บ 1: ค่าทั่วไป & Logs
@@ -101,6 +101,9 @@ async function playMusicQuery(query, displayTitle) {
       fetchBotStatus();
     } else {
       addLog(`เกิดข้อผิดพลาด: ${result.error}`, 'error');
+      const banner = document.getElementById('music-error-banner');
+      const bannerText = document.getElementById('music-error-text');
+      if (banner && bannerText) { bannerText.textContent = result.error; banner.style.display = 'flex'; }
     }
   } catch (error) {
     addLog('ไม่สามารถสั่งรันเพลงได้', 'error');
@@ -1148,3 +1151,18 @@ setInterval(() => {
   fetchBotStatus();
   fetchLogs();
 }, 2500);
+
+// Mobile sidebar toggle
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+const sidebarEl = document.getElementById('sidebar');
+const overlayEl = document.getElementById('sidebar-overlay');
+if (mobileMenuBtn && sidebarEl && overlayEl) {
+  mobileMenuBtn.addEventListener('click', () => {
+    sidebarEl.classList.toggle('open');
+    overlayEl.classList.toggle('visible');
+  });
+  overlayEl.addEventListener('click', () => {
+    sidebarEl.classList.remove('open');
+    overlayEl.classList.remove('visible');
+  });
+}
