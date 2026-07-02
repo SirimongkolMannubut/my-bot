@@ -29,6 +29,7 @@ function createYtdlpStream(url) {
     '--no-warnings',
     '--no-check-certificate',
     '--no-playlist',
+    '--extractor-args', 'youtube:player_client=android,web',
     url
   ], { stdio: ['ignore', 'pipe', 'ignore'] });
   return proc.stdout;
@@ -778,6 +779,7 @@ app.post('/api/music/play', async (req, res) => {
       noWarnings: true,
       noCheckCertificate: true,
       noPlaylist: true,
+      extractorArgs: 'youtube:player_client=android,web',
     });
 
     const video = info.entries ? info.entries[0] : info;
@@ -915,6 +917,7 @@ app.post('/api/music/favorites', async (req, res) => {
         noWarnings: true,
         noCheckCertificate: true,
         noPlaylist: true,
+        extractorArgs: 'youtube:player_client=android,web',
       });
       const video = info.entries ? info.entries[0] : info;
       if (!video) return res.status(404).json({ error: 'ไม่พบเพลงนี้บน YouTube' });
