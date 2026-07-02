@@ -815,10 +815,8 @@ app.post('/api/music/play', async (req, res) => {
     const secs = seconds % 60;
     const duration = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
 
-    const audioFormats = video.formats.filter(f => f.vcodec === 'none' && f.acodec !== 'none');
-    if (audioFormats.length === 0) return res.status(400).json({ error: 'ไม่พบฟอร์แมตเสียง' });
-    audioFormats.sort((a, b) => (b.abr || 0) - (a.abr || 0));
-    const streamUrl = audioFormats[0].url;
+    const hasAudio = video.formats.some(f => f.acodec && f.acodec !== 'none');
+    if (!hasAudio) return res.status(400).json({ error: 'ไม่พบฟอร์แมตเสียง' });
 
     const song = { title, url, duration };
     let queue = musicQueues.get(guildId);
