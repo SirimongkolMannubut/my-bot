@@ -62,6 +62,8 @@ let botActivity = 'พิมพ์ !ping';
 const settingsCache = new Map(); // guildId -> settings document
 const musicQueues = new Map();   // guildId -> array of songs { title, url, duration }
 const audioPlayers = new Map();  // guildId -> AudioPlayer instance
+const autoplayStates = new Map(); // guildId -> boolean
+const lastPlayedSongs = new Map(); // guildId -> last played song { title, url, duration }
 
 // --- โครงสร้างฐานข้อมูล MongoDB ---
 // 1. Settings Schema
@@ -190,6 +192,44 @@ function connectToVoice(guild, channel) {
   return connection;
 }
 
+async function getAutoplayNextSong(guildId, lastPlayedSong) {
+  try {
+    const { default: youtubeSr } = await import('youtube-sr');
+    let query = "เพลงฮิต";
+    if (lastPlayedSong && lastPlayedSong.title) {
+      query = `${lastPlayedSong.title} related`;
+    }
+    
+    // 50% chance to fetch random favorite song from MongoDB
+    const count = await SavedSong.countDocuments({ guildId });
+    if (count > 0 && Math.random() > 0.5) {
+      const randomIdx = Math.floor(Math.random() * count);
+      const randFav = await SavedSong.findOne({ guildId }).skip(randomIdx);
+      if (randFav) {
+        return { title: randFav.title, url: randFav.url, duration: randFav.duration };
+      }
+    }
+
+    const results = await youtubeSr.YouTube.search(query, { limit: 6, type: 'video' });
+    const candidates = results.filter(v => {
+      if (!v.id) return false;
+      if (lastPlayedSong && lastPlayedSong.url.includes(v.id)) return false;
+      return true;
+    });
+    const selected = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))] || results[0];
+    if (selected) {
+      return {
+        title: selected.title || 'เพลงแนะนำ',
+        url: `https://www.youtube.com/watch?v=${selected.id}`,
+        duration: selected.durationFormatted || '4:00'
+      };
+    }
+  } catch (e) {
+    console.error('Autoplay error:', e);
+  }
+  return null;
+}
+
 async function playNextSong(guildId) {
   const queue = musicQueues.get(guildId);
   const player = audioPlayers.get(guildId);
@@ -201,20 +241,34 @@ async function playNextSong(guildId) {
   }
 
   // ลบเพลงแรกที่เพิ่งเล่นจบไปออกจากคิว
-  queue.shift();
+  const finishedSong = queue.shift();
+  if (finishedSong) {
+    lastPlayedSongs.set(guildId, finishedSong);
+  }
 
   if (queue.length === 0) {
-    logEvent(`คิวเพลงในเซิร์ฟเวอร์หมดแล้ว ID: ${guildId}`, 'bot');
-    player.stop();
-    return;
+    if (autoplayStates.get(guildId)) {
+      logEvent(`คิวหมดแล้ว กำลังค้นหาเพลงสุ่ม/แนะนำมาเล่นต่อ (Autoplay)...`, 'bot');
+      const nextSong = await getAutoplayNextSong(guildId, finishedSong);
+      if (nextSong) {
+        queue.push(nextSong);
+        logEvent(`[Autoplay] เพิ่มเพลงถัดไปอัตโนมัติ: "${nextSong.title}"`, 'bot');
+      } else {
+        logEvent(`คิวเพลงหมดแล้ว (ไม่สามารถหาเพลงสุ่มแนะนำได้)`, 'bot');
+        player.stop();
+        return;
+      }
+    } else {
+      logEvent(`คิวเพลงในเซิร์ฟเวอร์หมดแล้ว ID: ${guildId}`, 'bot');
+      player.stop();
+      return;
+    }
   }
 
   // ดึงเพลงถัดมาเพื่อรันต่อ
   const nextSong = queue[0];
   try {
     logEvent(`กำลังดึงสตรีมเพลงถัดไปจาก YouTube: "${nextSong.title}"`, 'bot');
-
-    // pipe yt-dlp โดยตรงเข้า Discord ไม่ต้องดึง CDN URL ที่อาจหมดอายุ
     const stream = createYtdlpStream(nextSong.url);
     const resource = createAudioResource(stream);
     player.play(resource);
@@ -409,9 +463,10 @@ app.get('/api/status', async (req, res) => {
         leaveMessage: config.leaveMessage,
         prefix: config.prefix,
         activity: config.activity,
-        connectedVoiceChannelId: connectedCh ? connectedCh.id : null,
+        connectedVoiceChannelId: connectedCh?.id || null,
         connectedVoiceChannelName: connectedCh ? connectedCh.name : null,
-        musicQueue: musicQueues.get(guild.id) || []
+        musicQueue: musicQueues.get(guild.id) || [],
+        autoplayEnabled: autoplayStates.get(guild.id) || false
       };
     }));
 
@@ -833,6 +888,7 @@ app.post('/api/music/play', async (req, res) => {
     const player = getGuildAudioPlayer(guildId, connection);
     if (player.state.status === AudioPlayerStatus.Idle && queue.length === 1) {
       logEvent(`เริ่มเล่นเพลง: "${song.title}"`, 'bot');
+      lastPlayedSongs.set(guildId, song); // SAVE HERE
       // pipe yt-dlp โดยตรงเข้า Discord ไม่ต้องดึง CDN URL
       const stream = createYtdlpStream(url);
       const resource = createAudioResource(stream);
@@ -846,6 +902,55 @@ app.post('/api/music/play', async (req, res) => {
     logEvent(`เชื่อมต่อห้องเสียง/เล่นเพลง YouTube ผิดพลาด: ${error.message}`, 'error');
     res.status(500).json({ error: `เกิดข้อผิดพลาดในการรันสตรีม: ${error.message}` });
   }
+});
+
+// เปลี่ยนสถานะ Autoplay
+app.post('/api/music/autoplay', (req, res) => {
+  const { guildId, enabled } = req.body;
+  if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
+  autoplayStates.set(guildId, !!enabled);
+  logEvent(`เปลี่ยนสถานะ Autoplay ในเซิร์ฟ ID ${guildId} เป็น: ${!!enabled ? 'เปิด' : 'ปิด'}`, 'system');
+  res.json({ success: true, enabled: !!enabled });
+});
+
+// ลบเพลงออกจากคิว (ตาม index)
+app.delete('/api/music/queue', (req, res) => {
+  const { guildId, index } = req.body;
+  if (!guildId || index === undefined) return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
+  const queue = musicQueues.get(guildId);
+  if (!queue || index < 0 || index >= queue.length) {
+    return res.status(400).json({ error: 'ไม่พบตำแหน่งคิวที่จะลบ' });
+  }
+  const removed = queue.splice(index, 1)[0];
+  logEvent(`ลบเพลงออกจากคิว: "${removed.title}" ตำแหน่ง #${index}`, 'system');
+  res.json({ success: true });
+});
+
+// ย้ายคิว (สลับคิวขึ้น/ลง หรือสลับไปเล่นถัดไป)
+app.post('/api/music/queue/move', (req, res) => {
+  const { guildId, index, direction } = req.body;
+  if (!guildId || index === undefined || !direction) {
+    return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
+  }
+  const queue = musicQueues.get(guildId);
+  if (!queue || index < 1 || index >= queue.length) {
+    return res.status(400).json({ error: 'ไม่พบตำแหน่งคิวที่จะย้าย (ไม่สามารถย้ายคิวเพลงลำดับที่ 0 ได้)' });
+  }
+
+  if (direction === 'up' && index > 1) {
+    // สลับกับตัวบน
+    const temp = queue[index];
+    queue[index] = queue[index - 1];
+    queue[index - 1] = temp;
+    logEvent(`เลื่อนคิวขึ้น: "${temp.title}" จากลำดับ #${index} ไป #${index - 1}`, 'system');
+  } else if (direction === 'top') {
+    // เลื่อนไปบนสุดถัดจากเพลงปัจจุบัน (ตำแหน่ง index 1)
+    const [moved] = queue.splice(index, 1);
+    queue.splice(1, 0, moved);
+    logEvent(`เลื่อนคิวเล่นถัดไป: "${moved.title}" ไปตำแหน่งแรกสุด`, 'system');
+  }
+
+  res.json({ success: true });
 });
 
 // พักเพลง / เล่นต่อชั่วคราว

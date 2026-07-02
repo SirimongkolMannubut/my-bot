@@ -73,6 +73,7 @@ const npTitle = document.getElementById('np-title');
 const npChannel = document.getElementById('np-channel');
 const npThumbnail = document.getElementById('np-thumbnail');
 const btnClearSearch = document.getElementById('btn-music-clear-search');
+const musicAutoplayToggle = document.getElementById('music-autoplay-toggle');
 
 // ตัวแปรสำหรับเพลงที่เลือกอยู่
 let selectedSong = null; // { title, url, channel, thumbnail }
@@ -267,6 +268,22 @@ btnMusicStop.addEventListener('click', async () => {
   }
 });
 
+musicAutoplayToggle.addEventListener('change', async () => {
+  const guildId = globalGuildSelect.value;
+  if (!guildId) return;
+  const enabled = musicAutoplayToggle.checked;
+  addLog(`กำลังสลับสถานะ Autoplay เป็น: ${enabled ? 'เปิด' : 'ปิด'}...`, 'system');
+  try {
+    await fetch('/api/music/autoplay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, enabled })
+    });
+  } catch (error) {
+    console.error('Autoplay toggle failed:', error);
+  }
+});
+
 // แท็บ 7: จัดการบทบาท (Roles)
 const roleCreateForm = document.getElementById('role-create-form');
 const newRoleName = document.getElementById('new-role-name');
@@ -326,6 +343,12 @@ async function fetchBotStatus() {
       
       botGuilds = data.guilds || [];
       updateGlobalGuildSelect();
+      
+      // Sync autoplay switch
+      const activeGuild = botGuilds.find(g => g.id === globalGuildSelect.value);
+      if (activeGuild) {
+        musicAutoplayToggle.checked = !!activeGuild.autoplayEnabled;
+      }
     } else {
       setUIOffline();
     }
@@ -404,6 +427,8 @@ function disableGuildDependentControls() {
   btnMusicFav.disabled = true;
   btnMusicPause.disabled = true;
   btnMusicStop.disabled = true;
+  musicAutoplayToggle.disabled = true; // Add this
+  musicAutoplayToggle.checked = false; // Add this
   favoritesQueue.innerHTML = '<li class="empty-list">กรุณาเลือกเซิร์ฟเวอร์เพื่อดึงข้อมูลคลังเพลงโปรด</li>';
 
   // แท็บ 7: ยศ
@@ -560,6 +585,7 @@ function enableGuildDependentControls(guildId) {
     btnMusicFav.disabled = true; // enabled only when song selected
     btnMusicPause.disabled = false;
     btnMusicStop.disabled = false;
+    musicAutoplayToggle.disabled = false; // Add this
     
     guild.voiceChannels.forEach(ch => {
       const opt = document.createElement('option');
@@ -581,6 +607,8 @@ function enableGuildDependentControls(guildId) {
     btnMusicFav.disabled = true;
     btnMusicPause.disabled = true;
     btnMusicStop.disabled = true;
+    musicAutoplayToggle.disabled = true; // Add this
+    musicAutoplayToggle.checked = false; // Add this
   }
 
   // แท็บ 7: ยศ (Roles)
@@ -855,16 +883,74 @@ moderationForm.addEventListener('submit', async (e) => {
 function updateMusicQueueUI(queue) {
   playlistQueue.innerHTML = '';
   if (!queue || queue.length === 0) {
-    playlistQueue.innerHTML = '<li class="empty-list">ไม่มีรายการคิวเพลงขณะนี้ บอทจะหยุดและสแตนด์บาย</li>';
+    playlistQueue.innerHTML = '<li class="empty-list">ยังไม่มีเพลงในคิว</li>';
     return;
   }
   
   queue.forEach((song, idx) => {
     const li = document.createElement('li');
+    let actionsHTML = '';
+    
+    // Add controls for songs that are in the queue but not currently playing (index > 0)
+    if (idx > 0) {
+      actionsHTML = `
+        <div class="queue-item-actions" style="display:flex; gap:0.35rem;">
+          <button class="btn-icon-only btn-move-top-queue" title="เล่นถัดไป (บนสุด)" data-index="${idx}">⚡</button>
+          <button class="btn-icon-only btn-move-up-queue" title="เลื่อนขึ้น" data-index="${idx}">🔼</button>
+          <button class="btn-icon-only btn-remove-queue" title="ลบออกจากคิว" data-index="${idx}" style="color:var(--red);">❌</button>
+        </div>
+      `;
+    }
+    
     li.innerHTML = `
-      <span>${idx === 0 ? '▶️ <strong>กำลังเล่น:</strong>' : `🎵 #${idx}`} ${song.title}</span>
-      <span class="text-muted">${song.duration}</span>
+      <div style="display:flex; flex-direction:column; gap:0.15rem; min-width:0; flex:1; text-align:left;">
+        <span style="font-weight: 600; font-size:0.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          ${idx === 0 ? '▶️ <strong>กำลังเล่น:</strong>' : `🎵 #${idx}`} ${song.title}
+        </span>
+        <span style="font-size:0.75rem; color:var(--text3);">${song.duration}</span>
+      </div>
+      ${actionsHTML}
     `;
+
+    // Bind event listeners for actions
+    if (idx > 0) {
+      li.querySelector('.btn-move-top-queue').addEventListener('click', async () => {
+        const guildId = globalGuildSelect.value;
+        try {
+          const res = await fetch('/api/music/queue/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guildId, index: idx, direction: 'top' })
+          });
+          if (res.ok) fetchBotStatus();
+        } catch (err) { console.error(err); }
+      });
+
+      li.querySelector('.btn-move-up-queue').addEventListener('click', async () => {
+        const guildId = globalGuildSelect.value;
+        try {
+          const res = await fetch('/api/music/queue/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guildId, index: idx, direction: 'up' })
+          });
+          if (res.ok) fetchBotStatus();
+        } catch (err) { console.error(err); }
+      });
+
+      li.querySelector('.btn-remove-queue').addEventListener('click', async () => {
+        const guildId = globalGuildSelect.value;
+        try {
+          const res = await fetch('/api/music/queue', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guildId, index: idx })
+          });
+          if (res.ok) fetchBotStatus();
+        } catch (err) { console.error(err); }
+      });
+    }
+
     playlistQueue.appendChild(li);
   });
 }
