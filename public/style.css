@@ -720,6 +720,11 @@ body {
 }
 
 /* Search bar */
+.music-search-panel {
+  position: relative;
+  z-index: 10;
+}
+
 .music-search-wrapper {
   position: relative;
   margin-bottom: 1rem;
