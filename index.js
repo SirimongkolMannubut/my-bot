@@ -781,42 +781,49 @@ app.post('/api/music/play', async (req, res) => {
     settings.voiceChannelId = voiceChannelId;
     await settings.save();
 
-    logEvent(`กำลังค้นหาและดึงข้อมูลเพลงจาก YouTube: "${query}"`, 'system');
+    let title = req.body.title;
+    let url = query;
+    let duration = req.body.duration;
 
-    let targetQuery = query;
-    const isUrl = query.startsWith('http');
+    // ถ้าไม่มีข้อมูลที่แนบมา (เช่น วางลิงก์ตรงๆ) ค่อยสั่งดึง Metadata จาก YouTube
+    if (!title || !duration) {
+      logEvent(`กำลังค้นหาและดึงข้อมูลเพลงจาก YouTube: "${query}"`, 'system');
+      let targetQuery = query;
+      const isUrl = query.startsWith('http');
 
-    // ตัด playlist params ออกเพื่อเล่นเพลงเดียว
-    if (isUrl) {
-      try {
-        const cleanUrl = new URL(query);
-        const videoId = cleanUrl.searchParams.get('v');
-        if (videoId) targetQuery = `https://www.youtube.com/watch?v=${videoId}`;
-      } catch (_) {}
+      if (isUrl) {
+        try {
+          const cleanUrl = new URL(query);
+          const videoId = cleanUrl.searchParams.get('v');
+          if (videoId) targetQuery = `https://www.youtube.com/watch?v=${videoId}`;
+        } catch (_) {}
+      } else {
+        targetQuery = `ytsearch1:${query}`;
+      }
+
+      const info = await youtubeDl(targetQuery, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCheckCertificate: true,
+        noPlaylist: true,
+        extractorArgs: 'youtube:player_client=ios,android',
+      });
+
+      const video = info.entries ? info.entries[0] : info;
+      if (!video) return res.status(404).json({ error: 'ไม่พบผลลัพธ์' });
+
+      title = video.title;
+      url = video.webpage_url || video.url;
+      const seconds = video.duration || 0;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      duration = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+
+      const hasAudio = video.formats.some(f => f.acodec && f.acodec !== 'none');
+      if (!hasAudio) return res.status(400).json({ error: 'ไม่พบฟอร์แมตเสียง' });
     } else {
-      targetQuery = `ytsearch1:${query}`;
+      logEvent(`ได้รับข้อมูลเพลงพร้อมใช้งาน: "${title}"`, 'system');
     }
-
-    const info = await youtubeDl(targetQuery, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificate: true,
-      noPlaylist: true,
-      extractorArgs: 'youtube:player_client=ios,android',
-    });
-
-    const video = info.entries ? info.entries[0] : info;
-    if (!video) return res.status(404).json({ error: 'ไม่พบผลลัพธ์' });
-
-    const title = video.title;
-    const url = video.webpage_url || video.url;
-    const seconds = video.duration || 0;
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const duration = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
-
-    const hasAudio = video.formats.some(f => f.acodec && f.acodec !== 'none');
-    if (!hasAudio) return res.status(400).json({ error: 'ไม่พบฟอร์แมตเสียง' });
 
     const song = { title, url, duration };
     let queue = musicQueues.get(guildId);

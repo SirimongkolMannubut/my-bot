@@ -78,7 +78,7 @@ const btnClearSearch = document.getElementById('btn-music-clear-search');
 let selectedSong = null; // { title, url, channel, thumbnail }
 
 // Helper: เล่นเพลงด้วย URL
-async function playMusicQuery(query, displayTitle) {
+async function playMusicQuery(query, displayTitle, duration) {
   const guildId = globalGuildSelect.value;
   const voiceChannelId = musicVoiceSelect.value;
   if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
@@ -93,7 +93,7 @@ async function playMusicQuery(query, displayTitle) {
     const response = await fetch('/api/music/play', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildId, voiceChannelId, query })
+      body: JSON.stringify({ guildId, voiceChannelId, query, title: displayTitle, duration })
     });
     const result = await response.json();
     if (response.ok) {
@@ -220,7 +220,7 @@ btnClearSearch.addEventListener('click', clearSearch);
 // ปุ่มเล่นเพลงที่เลือกจาก search
 btnMusicPlay.addEventListener('click', () => {
   if (!selectedSong) return;
-  playMusicQuery(selectedSong.url, selectedSong.title);
+  playMusicQuery(selectedSong.url, selectedSong.title, selectedSong.duration);
 });
 
 // ปุ่มเล่นจาก URL โดยตรง
