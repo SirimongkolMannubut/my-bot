@@ -703,6 +703,29 @@ app.delete('/api/roles', async (req, res) => {
   }
 });
 
+// ค้นหาเพลงบน YouTube (ส่งผลลัพธ์กลับมาให้เลือก เหมือน YouTube Search)
+app.get('/api/music/search', async (req, res) => {
+  const { q } = req.query;
+  if (!q || q.trim().length < 2) return res.json({ results: [] });
+
+  try {
+    const { default: youtubeSr } = await import('youtube-sr');
+    const results = await youtubeSr.YouTube.search(q.trim(), { limit: 8, type: 'video' });
+    const videos = results.map(v => ({
+      id: v.id,
+      title: v.title || 'ไม่ทราบชื่อเพลง',
+      url: `https://www.youtube.com/watch?v=${v.id}`,
+      duration: v.durationFormatted || '0:00',
+      thumbnail: v.thumbnail?.url || `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`,
+      channel: v.channel?.name || '',
+      views: v.views ? `${(v.views / 1000000).toFixed(1)}M views` : '',
+    }));
+    res.json({ results: videos });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // เข้าร่วมห้องเสียงเพื่อสแตนด์บาย 24/7 (โดยยังไม่เล่นเพลง)
 app.post('/api/music/join', async (req, res) => {
   const { guildId, voiceChannelId } = req.body;

@@ -59,12 +59,210 @@ const btnExecuteMod = document.getElementById('btn-execute-mod');
 const musicVoiceSelect = document.getElementById('music-voice-select');
 const musicSearch = document.getElementById('music-search');
 const btnMusicPlay = document.getElementById('btn-music-play');
+const btnMusicPlayUrl = document.getElementById('btn-music-play-url');
 const btnMusicJoin = document.getElementById('btn-music-join');
 const btnMusicFav = document.getElementById('btn-music-fav');
 const btnMusicPause = document.getElementById('btn-music-pause');
 const btnMusicStop = document.getElementById('btn-music-stop');
 const playlistQueue = document.getElementById('playlist-queue');
 const favoritesQueue = document.getElementById('favorites-queue');
+const musicSearchResults = document.getElementById('music-search-results');
+const musicResultsList = document.getElementById('music-results-list');
+const nowPlayingBar = document.getElementById('now-playing-bar');
+const npTitle = document.getElementById('np-title');
+const npChannel = document.getElementById('np-channel');
+const npThumbnail = document.getElementById('np-thumbnail');
+const btnClearSearch = document.getElementById('btn-music-clear-search');
+
+// ตัวแปรสำหรับเพลงที่เลือกอยู่
+let selectedSong = null; // { title, url, channel, thumbnail }
+
+// Helper: เล่นเพลงด้วย URL
+async function playMusicQuery(query, displayTitle) {
+  const guildId = globalGuildSelect.value;
+  const voiceChannelId = musicVoiceSelect.value;
+  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
+  if (!voiceChannelId) return alert('กรุณาเลือกห้องแชทเสียงที่จะให้บอทเข้า!');
+  if (!query) return alert('กรุณาป้อนลิงก์เพลงหรือค้นหาก่อน!');
+
+  addLog(`กำลังสั่งให้บอทรันเพลง: "${displayTitle || query}"`, 'system');
+  btnMusicPlay.disabled = true;
+  btnMusicPlayUrl.disabled = true;
+
+  try {
+    const response = await fetch('/api/music/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, voiceChannelId, query })
+    });
+    const result = await response.json();
+    if (response.ok) {
+      addLog(`เริ่มเล่นเพลงสำเร็จ: ${result.title}`, 'success');
+      fetchBotStatus();
+    } else {
+      addLog(`เกิดข้อผิดพลาด: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    addLog('ไม่สามารถสั่งรันเพลงได้', 'error');
+  } finally {
+    btnMusicPlay.disabled = false;
+    btnMusicPlayUrl.disabled = false;
+  }
+}
+
+// ---- SEARCH SYSTEM ----
+let searchDebounce = null;
+
+function showSearchResults(videos) {
+  if (!videos || videos.length === 0) {
+    musicResultsList.innerHTML = '<div class="search-loading">ไม่พบผลลัพธ์</div>';
+    musicSearchResults.style.display = 'block';
+    return;
+  }
+  musicResultsList.innerHTML = '';
+  videos.forEach(v => {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+    item.innerHTML = `
+      <img class="sr-thumb" src="${v.thumbnail}" alt="" onerror="this.src='https://img.youtube.com/vi/${v.id}/mqdefault.jpg'">
+      <div class="sr-info">
+        <div class="sr-title">${v.title}</div>
+        <div class="sr-meta">
+          <span>${v.channel}</span>
+          ${v.views ? `<span>· ${v.views}</span>` : ''}
+        </div>
+      </div>
+      <span class="sr-duration">${v.duration}</span>
+    `;
+    item.addEventListener('click', () => {
+      selectSong(v);
+    });
+    musicResultsList.appendChild(item);
+  });
+  musicSearchResults.style.display = 'block';
+}
+
+function selectSong(v) {
+  selectedSong = v;
+  // แสดง Now Playing Bar
+  npTitle.textContent = v.title;
+  npChannel.textContent = v.channel || '';
+  npThumbnail.src = v.thumbnail || '';
+  nowPlayingBar.style.display = 'flex';
+  // ซ่อน dropdown แต่คง search value
+  musicSearchResults.style.display = 'none';
+  musicSearch.value = v.title;
+  btnClearSearch.style.display = 'inline-flex';
+  // เปิดปุ่มเล่น
+  if (globalGuildSelect.value) {
+    btnMusicPlay.disabled = false;
+    btnMusicFav.disabled = false;
+  }
+}
+
+function clearSearch() {
+  selectedSong = null;
+  musicSearch.value = '';
+  musicSearchResults.style.display = 'none';
+  nowPlayingBar.style.display = 'none';
+  btnClearSearch.style.display = 'none';
+  btnMusicPlay.disabled = true;
+  btnMusicFav.disabled = true;
+}
+
+musicSearch.addEventListener('input', () => {
+  const q = musicSearch.value.trim();
+  btnClearSearch.style.display = q ? 'inline-flex' : 'none';
+
+  // ถ้าเป็น YouTube URL → ไม่ต้องค้นหา
+  if (q.startsWith('http')) {
+    musicSearchResults.style.display = 'none';
+    selectedSong = null;
+    nowPlayingBar.style.display = 'none';
+    return;
+  }
+
+  if (!q) {
+    musicSearchResults.style.display = 'none';
+    return;
+  }
+
+  // Debounce 450ms
+  clearTimeout(searchDebounce);
+  musicResultsList.innerHTML = '<div class="search-loading">⏳ กำลังค้นหา...</div>';
+  musicSearchResults.style.display = 'block';
+
+  searchDebounce = setTimeout(async () => {
+    if (musicSearch.value.trim() !== q) return; // ยกเลิกถ้ามีการพิมพ์ใหม่
+    try {
+      const res = await fetch(`/api/music/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      showSearchResults(data.results);
+    } catch (e) {
+      musicResultsList.innerHTML = '<div class="search-loading">❌ ค้นหาไม่สำเร็จ</div>';
+    }
+  }, 450);
+});
+
+// ปิด dropdown เมื่อคลิกนอก
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.music-search-wrapper')) {
+    musicSearchResults.style.display = 'none';
+  }
+});
+
+// ปุ่มล้างช่องค้นหา
+btnClearSearch.addEventListener('click', clearSearch);
+
+// ปุ่มเล่นเพลงที่เลือกจาก search
+btnMusicPlay.addEventListener('click', () => {
+  if (!selectedSong) return;
+  playMusicQuery(selectedSong.url, selectedSong.title);
+});
+
+// ปุ่มเล่นจาก URL โดยตรง
+btnMusicPlayUrl.addEventListener('click', () => {
+  const q = musicSearch.value.trim();
+  if (!q) return alert('กรุณาวางลิงก์ YouTube ในช่องค้นหาก่อน!');
+  playMusicQuery(q, q);
+});
+
+// ปุ่มพักเพลงชั่วคราว
+btnMusicPause.addEventListener('click', async () => {
+  const guildId = globalGuildSelect.value;
+  if (!guildId) return;
+  addLog('กำลังส่งคำขอสลับสถานะ เล่น/หยุดชั่วคราว...', 'system');
+  try {
+    const response = await fetch('/api/music/pause', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId })
+    });
+    if (response.ok) addLog('สลับสถานะ เล่น/หยุดชั่วคราว สำเร็จ', 'success');
+  } catch (error) {
+    console.error('พักเพลงล้มเหลว:', error);
+  }
+});
+
+// ปุ่มหยุดเล่นและออกจากห้องเสียง
+btnMusicStop.addEventListener('click', async () => {
+  const guildId = globalGuildSelect.value;
+  if (!guildId) return;
+  addLog('กำลังสั่งให้บอทล้างคิวเพลงและออกจากห้องเสียง...', 'system');
+  try {
+    const response = await fetch('/api/music/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId })
+    });
+    if (response.ok) {
+      addLog('หยุดเล่นและออกจากห้องเสียงเรียบร้อยแล้ว', 'success');
+      fetchBotStatus();
+    }
+  } catch (error) {
+    console.error('หยุดเล่นเพลงล้มเหลว:', error);
+  }
+});
 
 // แท็บ 7: จัดการบทบาท (Roles)
 const roleCreateForm = document.getElementById('role-create-form');
@@ -76,6 +274,7 @@ const newRoleHoist = document.getElementById('new-role-hoist');
 const newRoleMentionable = document.getElementById('new-role-mentionable');
 const btnCreateRole = document.getElementById('btn-create-role');
 const rolesListBody = document.getElementById('roles-list-body');
+
 
 // --- ระบบบันทึก Logs บนหน้าเว็บ ---
 function addLog(text, type = 'system') {
@@ -352,9 +551,10 @@ function enableGuildDependentControls(guildId) {
   if (guild.voiceChannels && guild.voiceChannels.length > 0) {
     musicVoiceSelect.disabled = false;
     musicSearch.disabled = false;
-    btnMusicPlay.disabled = false;
+    btnMusicPlay.disabled = true; // enabled only when song selected
+    btnMusicPlayUrl.disabled = false;
     btnMusicJoin.disabled = false;
-    btnMusicFav.disabled = false;
+    btnMusicFav.disabled = true; // enabled only when song selected
     btnMusicPause.disabled = false;
     btnMusicStop.disabled = false;
     
@@ -373,6 +573,7 @@ function enableGuildDependentControls(guildId) {
     musicVoiceSelect.disabled = true;
     musicSearch.disabled = true;
     btnMusicPlay.disabled = true;
+    btnMusicPlayUrl.disabled = true;
     btnMusicJoin.disabled = true;
     btnMusicFav.disabled = true;
     btnMusicPause.disabled = true;
@@ -665,80 +866,7 @@ function updateMusicQueueUI(queue) {
   });
 }
 
-// ปุ่มสั่งเล่นเพลง
-btnMusicPlay.addEventListener('click', async () => {
-  const guildId = globalGuildSelect.value;
-  const voiceChannelId = musicVoiceSelect.value;
-  const query = musicSearch.value.trim();
-  
-  if (!guildId) return alert('กรุณาเลือกเซิร์ฟเวอร์ควบคุมก่อน!');
-  if (!voiceChannelId) return alert('กรุณาเลือกห้องแชทเสียงที่จะให้บอทเข้า!');
-  if (!query) return alert('กรุณาป้อนลิงก์เพลงหรือคำค้นหา!');
-  
-  addLog(`กำลังสั่งให้บอทรันเพลงและเชื่อมต่อห้องเสียง...`, 'system');
-  btnMusicPlay.disabled = true;
 
-  try {
-    const response = await fetch('/api/music/play', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildId, voiceChannelId, query })
-    });
-    const result = await response.json();
-    if (response.ok) {
-      addLog(`เริ่มเล่นเพลงสำเร็จ: ${result.title}`, 'success');
-      musicSearch.value = '';
-      fetchBotStatus();
-    } else {
-      addLog(`เกิดข้อผิดพลาดในการเล่นเพลง: ${result.error}`, 'error');
-    }
-  } catch (error) {
-    addLog('ไม่สามารถสั่งรันเพลงได้', 'error');
-  } finally {
-    btnMusicPlay.disabled = false;
-  }
-});
-
-// ปุ่มพักเพลงชั่วคราว
-btnMusicPause.addEventListener('click', async () => {
-  const guildId = globalGuildSelect.value;
-  if (!guildId) return;
-  
-  addLog('กำลังส่งคำขอสลับสถานะ เล่น/หยุดชั่วคราว...', 'system');
-  try {
-    const response = await fetch('/api/music/pause', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildId })
-    });
-    if (response.ok) {
-      addLog('สลับสถานะ เล่น/หยุดคิวเพลงชั่วคราว สำเร็จ', 'success');
-    }
-  } catch (error) {
-    console.error('พักเพลงล้มเหลว:', error);
-  }
-});
-
-// ปุ่มหยุดเล่นและออกจากห้องเสียง
-btnMusicStop.addEventListener('click', async () => {
-  const guildId = globalGuildSelect.value;
-  if (!guildId) return;
-  
-  addLog('กำลังสั่งให้บอทล้างคิวเพลงและออกจากห้องเสียง...', 'system');
-  try {
-    const response = await fetch('/api/music/stop', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildId })
-    });
-    if (response.ok) {
-      addLog('หยุดเล่นและออกจากห้องเสียงเรียบร้อยแล้ว', 'success');
-      fetchBotStatus();
-    }
-  } catch (error) {
-    console.error('หยุดเล่นเพลงล้มเหลว:', error);
-  }
-});
 
 // ปรับสีและรหัสสี HEX แบบสด
 newRoleColor.addEventListener('input', () => {

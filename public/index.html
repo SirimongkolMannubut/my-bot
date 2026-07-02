@@ -289,49 +289,82 @@
 
       <!-- TAB 6: MUSIC PLAYER CONTROLLER -->
       <div id="tab-music" class="tab-panel">
-        <div class="card-grid-two">
-          <!-- Audio controller -->
-          <div class="card">
-            <h2>เครื่องเล่นเสียงเพลง (Voice Client Control)</h2>
-            
-            <div class="form-group">
-              <label for="music-voice-select">เลือกห้องเสียงที่จะให้บอทเข้า</label>
+
+        <!-- Voice Channel Row -->
+        <div class="card music-voice-row">
+          <div class="music-voice-inner">
+            <div class="form-group" style="flex:1; min-width:200px;">
+              <label for="music-voice-select">🔊 ห้องเสียงที่บอทจะอยู่</label>
               <select id="music-voice-select" class="custom-select" disabled>
                 <option value="">-- เลือกเซิร์ฟเวอร์ด้านบนก่อน --</option>
               </select>
-              <button id="btn-music-join" class="btn btn-outline" style="margin-top: 0.5rem; width: 100%; border-color: rgba(66, 153, 225, 0.4); color: #4299e1;" disabled>🔊 เชื่อมต่อบอทเข้าห้องสแตนด์บาย 24/7</button>
+            </div>
+            <button id="btn-music-join" class="btn btn-join" disabled>📡 เชื่อมต่อ 24/7</button>
+            <button id="btn-music-pause" class="btn btn-outline" disabled>⏸️ หยุดชั่วคราว</button>
+            <button id="btn-music-stop" class="btn btn-danger" disabled>⏹️ ออกจากห้อง</button>
+          </div>
+        </div>
+
+        <!-- Search + Player -->
+        <div class="music-main-grid">
+
+          <!-- LEFT: Search & Controls -->
+          <div class="card music-search-card">
+            <h2>🎵 ค้นหาเพลง</h2>
+
+            <!-- Search Box -->
+            <div class="music-search-wrapper">
+              <div class="music-search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="music-search" class="music-search-input"
+                  placeholder="พิมพ์ชื่อเพลง หรือวางลิงก์ YouTube..." disabled>
+                <button id="btn-music-clear-search" class="search-clear-btn" style="display:none;">✕</button>
+              </div>
+
+              <!-- Search Results Dropdown -->
+              <div id="music-search-results" class="music-search-results" style="display:none;">
+                <div id="music-results-list"></div>
+              </div>
             </div>
 
-            <div class="form-group">
-              <label for="music-search">ป้อน URL หรือชื่อเพลงที่ต้องการค้นหาบน YouTube</label>
-              <input type="text" id="music-search" class="custom-input" placeholder="ป้อนชื่อเพลง หรือวางลิงก์ YouTube..." disabled>
+            <!-- Now Playing Bar -->
+            <div id="now-playing-bar" class="now-playing-bar" style="display:none;">
+              <img id="np-thumbnail" src="" alt="" class="np-thumb">
+              <div class="np-info">
+                <div id="np-title" class="np-title"></div>
+                <div id="np-channel" class="np-channel"></div>
+              </div>
+              <div class="np-controls">
+                <button id="btn-music-fav" class="btn-icon-round fav-btn" title="บันทึกโปรด" disabled>⭐</button>
+                <button id="btn-music-play" class="btn btn-primary play-btn" disabled>▶️ เล่นเพลงนี้</button>
+              </div>
             </div>
 
-            <div class="music-controls" style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
-              <button id="btn-music-play" class="btn btn-primary" disabled>▶️ เล่นเพลง (Play)</button>
-              <button id="btn-music-fav" class="btn btn-outline" style="color: #facc15; border-color: rgba(250, 204, 21, 0.4);" disabled>⭐ บันทึกเพลงโปรด (Save)</button>
-              <button id="btn-music-pause" class="btn btn-outline" disabled>⏸️ พัก/เล่นต่อ (Pause)</button>
-              <button id="btn-music-stop" class="btn btn-danger" disabled>⏹️ หยุด & ออก (Stop)</button>
+            <!-- Play via URL directly -->
+            <div class="music-url-row">
+              <span class="url-hint">หรือวางลิงก์ YouTube แล้วกด</span>
+              <button id="btn-music-play-url" class="btn btn-primary" disabled>▶️ เล่นจากลิงก์</button>
             </div>
           </div>
 
-          <!-- Playlist / Queue -->
-          <div class="card">
-            <h2>รายการคิวเพลงปัจจุบัน</h2>
+          <!-- RIGHT: Queue -->
+          <div class="card music-queue-card">
+            <h2>📋 คิวเพลง</h2>
             <div class="playlist-container">
               <ul id="playlist-queue" class="playlist-queue">
-                <li class="empty-list">ไม่มีรายการคิวเพลงขณะนี้ บอทจะหยุดและสแตนด์บาย</li>
+                <li class="empty-list">ยังไม่มีเพลงในคิว</li>
               </ul>
             </div>
           </div>
         </div>
 
-        <div class="card" style="margin-top: 1.5rem;">
-          <h2>⭐ เพลงโปรดประจำเซิร์ฟเวอร์ (Server Favorites - บันทึกในคลัง MongoDB)</h2>
-          <p class="section-desc">รายชื่อเพลงโปรดที่คนในเซิร์ฟบันทึกเก็บไว้ สามารถกดเล่นคิวได้ทันทีโดยไม่ต้องไปค้นใหม่</p>
-          <div class="playlist-container" style="height: 300px;">
+        <!-- Favorites -->
+        <div class="card" style="margin-top:1.25rem;">
+          <h2>⭐ เพลงโปรดที่บันทึกไว้ (Server Favorites)</h2>
+          <p class="section-desc">กดเล่นได้ทันทีโดยไม่ต้องค้นใหม่</p>
+          <div class="playlist-container" style="max-height:260px;">
             <ul id="favorites-queue" class="playlist-queue">
-              <li class="empty-list">ไม่มีเพลงโปรดจัดเก็บอยู่ขณะนี้ ลองพิมพ์เพลงแล้วกดบันทึกเพลงโปรดได้เลย!</li>
+              <li class="empty-list">ยังไม่มีเพลงโปรดบันทึกไว้ — ค้นหาเพลงแล้วกด ⭐ เพื่อบันทึก!</li>
             </ul>
           </div>
         </div>
