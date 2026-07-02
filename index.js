@@ -969,8 +969,20 @@ app.delete('/api/music/queue', (req, res) => {
   if (!queue || index < 0 || index >= queue.length) {
     return res.status(400).json({ error: 'ไม่พบตำแหน่งคิวที่จะลบ' });
   }
-  const removed = queue.splice(index, 1)[0];
-  logEvent(`ลบเพลงออกจากคิว: "${removed.title}" ตำแหน่ง #${index}`, 'system');
+
+  if (index === 0) {
+    // ลบเพลงที่กำลังเล่นอยู่ (Skip)
+    const player = audioPlayers.get(guildId);
+    if (player) {
+      player.stop(); // This triggers Idle event which shifts queue and plays next
+    } else {
+      queue.shift(); // If player not active, just shift
+    }
+    logEvent(`ลบเพลงที่กำลังเล่นอยู่ (ข้ามเพลง)`, 'system');
+  } else {
+    const removed = queue.splice(index, 1)[0];
+    logEvent(`ลบเพลงออกจากคิว: "${removed.title}" ตำแหน่ง #${index}`, 'system');
+  }
   res.json({ success: true });
 });
 

@@ -936,8 +936,14 @@ function updateMusicQueueUI(queue) {
     const li = document.createElement('li');
     let actionsHTML = '';
     
-    // Add controls for songs that are in the queue but not currently playing (index > 0)
-    if (idx > 0) {
+    // Add controls based on index
+    if (idx === 0) {
+      actionsHTML = `
+        <div class="queue-item-actions" style="display:flex; gap:0.35rem;">
+          <button class="btn-icon-only btn-remove-queue" title="ข้ามเพลงนี้" data-index="${idx}" style="color:var(--red);">❌</button>
+        </div>
+      `;
+    } else {
       actionsHTML = `
         <div class="queue-item-actions" style="display:flex; gap:0.35rem;">
           <button class="btn-icon-only btn-move-top-queue" title="เล่นถัดไป (บนสุด)" data-index="${idx}">⚡</button>
@@ -958,7 +964,20 @@ function updateMusicQueueUI(queue) {
     `;
 
     // Bind event listeners for actions
-    if (idx > 0) {
+    if (idx === 0) {
+      li.querySelector('.btn-remove-queue').addEventListener('click', async () => {
+        const guildId = globalGuildSelect.value;
+        if (!confirm('ต้องการข้ามเพลงที่กำลังเล่นอยู่นี้หรือไม่?')) return;
+        try {
+          const res = await fetch('/api/music/queue', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guildId, index: 0 })
+          });
+          if (res.ok) fetchBotStatus();
+        } catch (err) { console.error(err); }
+      });
+    } else {
       li.querySelector('.btn-move-top-queue').addEventListener('click', async () => {
         const guildId = globalGuildSelect.value;
         try {
