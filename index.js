@@ -31,7 +31,13 @@ function createYtdlpStream(url) {
     '--no-playlist',
     '--extractor-args', 'youtube:player_client=ios,android',
     url
-  ], { stdio: ['ignore', 'pipe', 'ignore'] });
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  proc.stderr.on('data', (data) => {
+    const errMsg = data.toString().trim();
+    if (errMsg) logEvent(`[yt-dlp Error] ${errMsg}`, 'error');
+  });
+
   return proc.stdout;
 }
 
