@@ -64,6 +64,7 @@ const musicQueues = new Map();   // guildId -> array of songs { title, url, dura
 const audioPlayers = new Map();  // guildId -> AudioPlayer instance
 const autoplayStates = new Map(); // guildId -> boolean
 const lastPlayedSongs = new Map(); // guildId -> last played song { title, url, duration }
+const guildVolumes = new Map(); // guildId -> float volume (0.0 to 1.0)
 
 // --- โครงสร้างฐานข้อมูล MongoDB ---
 // 1. Settings Schema
@@ -270,7 +271,9 @@ async function playNextSong(guildId) {
   try {
     logEvent(`กำลังดึงสตรีมเพลงถัดไปจาก YouTube: "${nextSong.title}"`, 'bot');
     const stream = createYtdlpStream(nextSong.url);
-    const resource = createAudioResource(stream);
+    const resource = createAudioResource(stream, { inlineVolume: true });
+    const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
+    resource.volume?.setVolume(vol);
     player.play(resource);
     logEvent(`กำลังเล่นเพลงถัดไป: "${nextSong.title}"`, 'bot');
   } catch (error) {
@@ -466,7 +469,8 @@ app.get('/api/status', async (req, res) => {
         connectedVoiceChannelId: connectedCh?.id || null,
         connectedVoiceChannelName: connectedCh ? connectedCh.name : null,
         musicQueue: musicQueues.get(guild.id) || [],
-        autoplayEnabled: autoplayStates.get(guild.id) || false
+        autoplayEnabled: autoplayStates.get(guild.id) || false,
+        volume: (guildVolumes.get(guild.id) !== undefined ? guildVolumes.get(guild.id) : 0.5) * 100
       };
     }));
 
@@ -891,7 +895,9 @@ app.post('/api/music/play', async (req, res) => {
       lastPlayedSongs.set(guildId, song); // SAVE HERE
       // pipe yt-dlp โดยตรงเข้า Discord ไม่ต้องดึง CDN URL
       const stream = createYtdlpStream(url);
-      const resource = createAudioResource(stream);
+      const resource = createAudioResource(stream, { inlineVolume: true });
+      const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
+      resource.volume?.setVolume(vol);
       player.play(resource);
     } else {
       logEvent(`เพิ่มเพลงเข้าคิวลำดับที่: ${queue.length}`, 'bot');
@@ -911,6 +917,29 @@ app.post('/api/music/autoplay', (req, res) => {
   autoplayStates.set(guildId, !!enabled);
   logEvent(`เปลี่ยนสถานะ Autoplay ในเซิร์ฟ ID ${guildId} เป็น: ${!!enabled ? 'เปิด' : 'ปิด'}`, 'system');
   res.json({ success: true, enabled: !!enabled });
+});
+
+// ตั้งค่าระดับเสียงของบอท (0-100)
+app.post('/api/music/volume', (req, res) => {
+  const { guildId, volume } = req.body;
+  if (!guildId || volume === undefined) return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
+
+  const volVal = parseFloat(volume);
+  if (isNaN(volVal) || volVal < 0 || volVal > 100) {
+    return res.status(400).json({ error: 'ระดับเสียงต้องอยู่ระหว่าง 0 ถึง 100' });
+  }
+
+  const volFloat = volVal / 100;
+  guildVolumes.set(guildId, volFloat);
+
+  // อัปเดตเสียงปัจจุบันทันทีที่กำลังเล่น
+  const player = audioPlayers.get(guildId);
+  if (player && player.state.resource) {
+    player.state.resource.volume?.setVolume(volFloat);
+  }
+
+  logEvent(`ปรับระดับเสียงของบอทในเซิร์ฟ ID ${guildId} เป็น: ${volVal}%`, 'system');
+  res.json({ success: true, volume: volVal });
 });
 
 // ลบเพลงออกจากคิว (ตาม index)

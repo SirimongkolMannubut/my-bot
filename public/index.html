@@ -333,6 +333,12 @@
               </label>
               <span style="font-size: 0.8rem; color: var(--text2); font-weight: 600; white-space: nowrap;">📻 Autoplay</span>
             </div>
+            <!-- Volume Control -->
+            <div style="display: flex; align-items: center; gap: 0.4rem; margin-left: 0.75rem;" title="ระดับเสียงบอท">
+              <span style="font-size: 1rem;">🔊</span>
+              <input type="range" id="music-volume-slider" min="0" max="100" value="50" style="width: 75px; cursor: pointer; accent-color: var(--primary);" disabled>
+              <span id="music-volume-text" style="font-size: 0.75rem; color: var(--text2); min-width: 30px; font-weight: 600;">50%</span>
+            </div>
           </div>
           <div class="voice-bar-right">
             <button id="btn-music-join" class="btn btn-cyan" disabled>📡 เชื่อมต่อ 24/7</button>

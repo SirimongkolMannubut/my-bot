@@ -74,6 +74,8 @@ const npChannel = document.getElementById('np-channel');
 const npThumbnail = document.getElementById('np-thumbnail');
 const btnClearSearch = document.getElementById('btn-music-clear-search');
 const musicAutoplayToggle = document.getElementById('music-autoplay-toggle');
+const musicVolumeSlider = document.getElementById('music-volume-slider');
+const musicVolumeText = document.getElementById('music-volume-text');
 
 // ตัวแปรสำหรับเพลงที่เลือกอยู่
 let selectedSong = null; // { title, url, channel, thumbnail }
@@ -284,6 +286,25 @@ musicAutoplayToggle.addEventListener('change', async () => {
   }
 });
 
+musicVolumeSlider.addEventListener('input', (e) => {
+  musicVolumeText.innerText = `${e.target.value}%`;
+});
+
+musicVolumeSlider.addEventListener('change', async (e) => {
+  const guildId = globalGuildSelect.value;
+  if (!guildId) return;
+  const volume = parseInt(e.target.value);
+  try {
+    await fetch('/api/music/volume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, volume })
+    });
+  } catch (error) {
+    console.error('Volume setting failed:', error);
+  }
+});
+
 // แท็บ 7: จัดการบทบาท (Roles)
 const roleCreateForm = document.getElementById('role-create-form');
 const newRoleName = document.getElementById('new-role-name');
@@ -344,10 +365,15 @@ async function fetchBotStatus() {
       botGuilds = data.guilds || [];
       updateGlobalGuildSelect();
       
-      // Sync autoplay switch
+      // Sync autoplay switch & volume slider
       const activeGuild = botGuilds.find(g => g.id === globalGuildSelect.value);
       if (activeGuild) {
         musicAutoplayToggle.checked = !!activeGuild.autoplayEnabled;
+        if (document.activeElement !== musicVolumeSlider) {
+          const vol = activeGuild.volume !== undefined ? Math.round(activeGuild.volume) : 50;
+          musicVolumeSlider.value = vol;
+          musicVolumeText.innerText = `${vol}%`;
+        }
       }
     } else {
       setUIOffline();
@@ -427,8 +453,11 @@ function disableGuildDependentControls() {
   btnMusicFav.disabled = true;
   btnMusicPause.disabled = true;
   btnMusicStop.disabled = true;
-  musicAutoplayToggle.disabled = true; // Add this
-  musicAutoplayToggle.checked = false; // Add this
+  musicAutoplayToggle.disabled = true; 
+  musicAutoplayToggle.checked = false; 
+  musicVolumeSlider.disabled = true;
+  musicVolumeSlider.value = 50;
+  musicVolumeText.innerText = '50%';
   favoritesQueue.innerHTML = '<li class="empty-list">กรุณาเลือกเซิร์ฟเวอร์เพื่อดึงข้อมูลคลังเพลงโปรด</li>';
 
   // แท็บ 7: ยศ
@@ -586,6 +615,7 @@ function enableGuildDependentControls(guildId) {
     btnMusicPause.disabled = false;
     btnMusicStop.disabled = false;
     musicAutoplayToggle.disabled = false; // Add this
+    musicVolumeSlider.disabled = false; // Add this
     
     guild.voiceChannels.forEach(ch => {
       const opt = document.createElement('option');
