@@ -23,13 +23,13 @@ const youtubeDl = require('youtube-dl-exec');
 // สร้าง stream เสียงโดย spawn yt-dlp โดยตรง (pipe stdout เข้า Discord)
 function createYtdlpStream(url) {
   const proc = spawn('yt-dlp', [
-    '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+    '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
     '--output', '-',
     '--quiet',
     '--no-warnings',
     '--no-check-certificate',
     '--no-playlist',
-    '--extractor-args', 'youtube:player_client=ios',
+    '--extractor-args', 'youtube:player_client=ios,android',
     url
   ], { stdio: ['ignore', 'pipe', 'ignore'] });
   return proc.stdout;
@@ -802,7 +802,7 @@ app.post('/api/music/play', async (req, res) => {
       noWarnings: true,
       noCheckCertificate: true,
       noPlaylist: true,
-      extractorArgs: 'youtube:player_client=ios',
+      extractorArgs: 'youtube:player_client=ios,android',
     });
 
     const video = info.entries ? info.entries[0] : info;
@@ -940,7 +940,7 @@ app.post('/api/music/favorites', async (req, res) => {
         noWarnings: true,
         noCheckCertificate: true,
         noPlaylist: true,
-        extractorArgs: 'youtube:player_client=android,web',
+        extractorArgs: 'youtube:player_client=ios,android',
       });
       const video = info.entries ? info.entries[0] : info;
       if (!video) return res.status(404).json({ error: 'ไม่พบเพลงนี้บน YouTube' });
