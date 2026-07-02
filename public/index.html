@@ -136,20 +136,43 @@
         <div class="two-col">
           <div class="card">
             <div class="card-header"><h2>สร้างห้องใหม่</h2></div>
-            <div class="form-body">
+            <form id="channel-create-form" class="form-body">
               <div class="form-group">
                 <label>ชื่อห้อง</label>
-                <input type="text" id="new-channel-name" class="input" placeholder="ชื่อห้อง" disabled>
+                <input type="text" id="new-channel-name" class="input" placeholder="ชื่อห้อง" required disabled>
               </div>
               <div class="form-group">
                 <label>ประเภทห้อง</label>
                 <select id="new-channel-type" class="select" disabled>
-                  <option value="0">💬 ข้อความ (Text)</option>
-                  <option value="2">🔊 เสียง (Voice)</option>
+                  <option value="text">💬 ข้อความ (Text)</option>
+                  <option value="voice">🔊 เสียง (Voice)</option>
                 </select>
               </div>
-              <button id="btn-create-channel" class="btn btn-primary" disabled>➕ สร้างห้อง</button>
-            </div>
+              <div class="form-group">
+                <label>หมวดหมู่ (Category)</label>
+                <select id="new-channel-parent" class="select" disabled>
+                  <option value="">-- ไม่จัดเข้าหมวดหมู่ (อยู่นอกสุด) --</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>การตั้งค่าพิเศษ</label>
+                <div class="permission-checkbox-group" style="display: flex; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px;">
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                    <input type="checkbox" id="new-channel-private" disabled>
+                    <span>🔒 ห้องส่วนตัว (Private)</span>
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                    <input type="checkbox" id="new-channel-readonly" disabled>
+                    <span>📝 อ่านอย่างเดียว (Read-Only)</span>
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                    <input type="checkbox" id="new-channel-muted" disabled>
+                    <span>🔇 ห้องเสียงแบบปิดไมค์ผู้เข้า (Muted Voice)</span>
+                  </label>
+                </div>
+              </div>
+              <button type="submit" id="btn-create-channel" class="btn btn-primary" disabled>➕ สร้างห้อง</button>
+            </form>
           </div>
           <div class="card">
             <div class="card-header"><h2>รายชื่อห้องทั้งหมด</h2></div>
@@ -165,48 +188,51 @@
         <div class="page-header">
           <h1 class="page-title">👋 ระบบต้อนรับ / บอกลา</h1>
         </div>
-        <div class="two-col">
-          <div class="card">
-            <div class="card-header"><h2>ตั้งค่าข้อความต้อนรับ</h2></div>
-            <form id="welcome-settings-form" class="form-body">
-              <div class="form-group">
-                <label>ห้องต้อนรับ</label>
-                <select id="welcome-channel-select" class="select" disabled>
-                  <option value="">-- เลือกห้อง --</option>
-                </select>
+        <form id="welcome-settings-form">
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header"><h2>ตั้งค่าข้อความต้อนรับ</h2></div>
+              <div class="form-body">
+                <div class="form-group">
+                  <label>ห้องต้อนรับ</label>
+                  <select id="welcome-channel-select" class="select" disabled>
+                    <option value="">-- เลือกห้อง --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>ข้อความต้อนรับ</label>
+                  <textarea id="welcome-message-input" class="textarea" rows="3" placeholder="ใช้ {user} แทนชื่อผู้ใช้" disabled></textarea>
+                </div>
+                <div class="toggle-row">
+                  <label>เปิดระบบต้อนรับ</label>
+                  <label class="toggle"><input type="checkbox" id="welcome-enabled" disabled><span class="toggle-slider"></span></label>
+                </div>
               </div>
-              <div class="form-group">
-                <label>ข้อความต้อนรับ</label>
-                <textarea id="welcome-message-input" class="textarea" rows="3" placeholder="ใช้ {user} แทนชื่อผู้ใช้" disabled></textarea>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2>ตั้งค่าข้อความบอกลา</h2></div>
+              <div class="form-body">
+                <div class="form-group">
+                  <label>ห้องบอกลา</label>
+                  <select id="leave-channel-select" class="select" disabled>
+                    <option value="">-- เลือกห้อง --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>ข้อความบอกลา</label>
+                  <textarea id="leave-message-input" class="textarea" rows="3" placeholder="ใช้ {user} แทนชื่อผู้ใช้" disabled></textarea>
+                </div>
+                <div class="toggle-row">
+                  <label>เปิดระบบบอกลา</label>
+                  <label class="toggle"><input type="checkbox" id="leave-enabled" disabled><span class="toggle-slider"></span></label>
+                </div>
               </div>
-              <div class="toggle-row">
-                <label>เปิดระบบต้อนรับ</label>
-                <label class="toggle"><input type="checkbox" id="welcome-enabled" disabled><span class="toggle-slider"></span></label>
-              </div>
-              <button type="submit" class="btn btn-success" id="btn-save-welcome" disabled>💾 บันทึก</button>
-            </form>
+            </div>
           </div>
-          <div class="card">
-            <div class="card-header"><h2>ตั้งค่าข้อความบอกลา</h2></div>
-            <form id="farewell-form" class="form-body">
-              <div class="form-group">
-                <label>ห้องบอกลา</label>
-                <select id="leave-channel-select" class="select" disabled>
-                  <option value="">-- เลือกห้อง --</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>ข้อความบอกลา</label>
-                <textarea id="leave-message-input" class="textarea" rows="3" placeholder="ใช้ {user} แทนชื่อผู้ใช้" disabled></textarea>
-              </div>
-              <div class="toggle-row">
-                <label>เปิดระบบบอกลา</label>
-                <label class="toggle"><input type="checkbox" id="leave-enabled" disabled><span class="toggle-slider"></span></label>
-              </div>
-              <button type="submit" class="btn btn-success" id="btn-save-farewell" disabled>💾 บันทึก</button>
-            </form>
+          <div class="card" style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-success" id="btn-save-welcome" style="min-width: 160px;" disabled>💾 บันทึกตั้งค่าต้อนรับทั้งหมด</button>
           </div>
-        </div>
+        </form>
       </div>
 
       <!-- TAB 4: CUSTOM COMMANDS -->
