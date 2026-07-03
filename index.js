@@ -955,20 +955,34 @@ app.post('/api/music/autoplay', async (req, res) => {
   logEvent(`เปลี่ยนสถานะ Autoplay ในเซิร์ฟ ID ${guildId} เป็น: ${isEnabled ? 'เปิด' : 'ปิด'}`, 'system');
 
   if (isEnabled) {
-    const queue = musicQueues.get(guildId) || [];
-    const player = audioPlayers.get(guildId);
-    const connection = getVoiceConnection(guildId);
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: 'ไม่พบเซิร์ฟเวอร์' });
+
+    let connection = getVoiceConnection(guildId);
+    let player = audioPlayers.get(guildId);
+
+    // กู้คืนการเชื่อมต่อห้องเสียงหากหลุดจากหน่วยความจำ (เช่น เพิ่งรีสตาร์ทระบบ) แต่ยังอยู่ในห้องเสียงของ Discord จริงๆ
+    const botVoice = guild.members.me?.voice;
+    const connectedCh = botVoice?.channel;
+    if (!connection && connectedCh) {
+      logEvent(`[Autoplay] ตรวจพบห้องเสียงค้างใน Discord (${connectedCh.name}) กำลังกู้คืนการเชื่อมต่อ...`, 'system');
+      connection = connectToVoice(guild, connectedCh);
+      player = audioPlayers.get(guildId);
+    }
 
     if (connection && player) {
+      let queue = musicQueues.get(guildId);
+      if (!queue) {
+        queue = [];
+        musicQueues.set(guildId, queue);
+      }
+
       if (queue.length === 0) {
         logEvent(`ตรวจพบสถานะคิวว่างเปล่า กำลังเริ่มระบบสุ่มหาเพลงแนะนำบน YouTube...`, 'bot');
         const lastSong = lastPlayedSongs.get(guildId);
         const nextSong = await getAutoplayNextSong(guildId, lastSong);
         if (nextSong) {
-          if (!musicQueues.has(guildId)) musicQueues.set(guildId, []);
-          const q = musicQueues.get(guildId);
-          q.push(nextSong);
-
+          queue.push(nextSong);
           const stream = createYtdlpStream(nextSong.url);
           const resource = createAudioResource(stream, { inlineVolume: true });
           const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
@@ -980,6 +994,8 @@ app.post('/api/music/autoplay', async (req, res) => {
         logEvent(`ตรวจพบเพลงค้างในคิว กำลังเริ่มเล่นเพลงจากคิวต่อ...`, 'bot');
         playNextSong(guildId);
       }
+    } else {
+      logEvent(`[Autoplay] บอทยังไม่ได้เชื่อมต่อเข้าห้องเสียงแชทใดๆ`, 'warning');
     }
   }
 
@@ -1091,13 +1107,23 @@ app.post('/api/music/stop', async (req, res) => {
   if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
 
   try {
-    const player = audioPlayers.get(guildId);
+    const guild = client.guilds.cache.get(guildId);
+    let player = audioPlayers.get(guildId);
+    let connection = getVoiceConnection(guildId);
+
+    // กู้คืนการเชื่อมต่อก่อนหากบอทอยู่ในห้องเสียงจริง เพื่อให้สามารถตัดสายออกได้สำเร็จ
+    const botVoice = guild?.members.me?.voice;
+    const connectedCh = botVoice?.channel;
+    if (!connection && connectedCh && guild) {
+      connection = connectToVoice(guild, connectedCh);
+      player = audioPlayers.get(guildId);
+    }
+
     if (player) {
       player.stop();
       audioPlayers.delete(guildId);
     }
 
-    const connection = getVoiceConnection(guildId);
     if (connection) {
       connection.destroy();
     }
