@@ -22,16 +22,21 @@ const youtubeDl = require('youtube-dl-exec');
 
 // สร้าง stream เสียงโดย spawn yt-dlp โดยตรง (pipe stdout เข้า Discord)
 function createYtdlpStream(url) {
-  const proc = spawn('yt-dlp', [
+  const ytdlpPath = youtubeDl.constants.YOUTUBE_DL_PATH || 'yt-dlp';
+  const proc = spawn(ytdlpPath, [
     '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
     '--output', '-',
     '--quiet',
     '--no-warnings',
     '--no-check-certificate',
     '--no-playlist',
-    '--extractor-args', 'youtube:player_client=android_music,tvhtml5,ios',
+    '--extractor-args', 'youtube:player_client=ios,android',
     url
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  proc.on('error', (err) => {
+    logEvent(`[spawn Error] ไม่สามารถรัน yt-dlp ได้: ${err.message}`, 'error');
+  });
 
   proc.stderr.on('data', (data) => {
     const errMsg = data.toString().trim();
@@ -264,7 +269,8 @@ async function playNextSong(guildId) {
   }
 
   if (queue.length === 0) {
-    if (autoplayStates.get(guildId)) {
+    const isAutoplayEnabled = autoplayStates.has(guildId) ? autoplayStates.get(guildId) : true;
+    if (isAutoplayEnabled) {
       logEvent(`คิวหมดแล้ว กำลังค้นหาเพลงสุ่ม/แนะนำมาเล่นต่อ (Autoplay)...`, 'bot');
       const nextSong = await getAutoplayNextSong(guildId, finishedSong);
       if (nextSong) {
@@ -485,7 +491,7 @@ app.get('/api/status', async (req, res) => {
         connectedVoiceChannelId: connectedCh?.id || null,
         connectedVoiceChannelName: connectedCh ? connectedCh.name : null,
         musicQueue: musicQueues.get(guild.id) || [],
-        autoplayEnabled: autoplayStates.get(guild.id) || false,
+        autoplayEnabled: autoplayStates.has(guild.id) ? autoplayStates.get(guild.id) : true,
         volume: (guildVolumes.get(guild.id) !== undefined ? guildVolumes.get(guild.id) : 0.5) * 100
       };
     }));
