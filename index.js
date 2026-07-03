@@ -202,35 +202,36 @@ function connectToVoice(guild, channel) {
 async function getAutoplayNextSong(guildId, lastPlayedSong) {
   try {
     const { default: youtubeSr } = await import('youtube-sr');
-    let query = "เพลงฮิต";
+    let query = "เพลงไทยฮิต";
     if (lastPlayedSong && lastPlayedSong.title) {
-      query = `${lastPlayedSong.title} related`;
-    }
-    
-    // 50% chance to fetch random favorite song from MongoDB
-    const count = await SavedSong.countDocuments({ guildId });
-    if (count > 0 && Math.random() > 0.5) {
-      const randomIdx = Math.floor(Math.random() * count);
-      const randFav = await SavedSong.findOne({ guildId }).skip(randomIdx);
-      if (randFav) {
-        return { title: randFav.title, url: randFav.url, duration: randFav.duration };
-      }
+      let cleanTitle = lastPlayedSong.title
+        .replace(/\[.*?\]/g, '')
+        .replace(/\(.*?\)/g, '')
+        .replace(/l/g, '')
+        .replace(/\|/g, '')
+        .trim();
+      query = `${cleanTitle} related`;
     }
 
-    const results = await youtubeSr.YouTube.search(query, { limit: 6, type: 'video' });
+    const results = await youtubeSr.YouTube.search(query, { limit: 8, type: 'video' });
+    if (!results || results.length === 0) return null;
+
     const candidates = results.filter(v => {
       if (!v.id) return false;
       if (lastPlayedSong && lastPlayedSong.url.includes(v.id)) return false;
+      if (v.durationFormatted === '0:00') return false;
       return true;
     });
-    const selected = candidates[Math.floor(Math.random() * Math.min(candidates.length, 3))] || results[0];
-    if (selected) {
-      return {
-        title: selected.title || 'เพลงแนะนำ',
-        url: `https://www.youtube.com/watch?v=${selected.id}`,
-        duration: selected.durationFormatted || '4:00'
-      };
-    }
+
+    const pool = candidates.slice(0, 4);
+    if (pool.length === 0) return null;
+
+    const selected = pool[Math.floor(Math.random() * pool.length)];
+    return {
+      title: selected.title || 'เพลงแนะนำ',
+      url: `https://www.youtube.com/watch?v=${selected.id}`,
+      duration: selected.durationFormatted || '4:00'
+    };
   } catch (e) {
     console.error('Autoplay error:', e);
   }
@@ -936,12 +937,40 @@ app.post('/api/music/play', async (req, res) => {
 });
 
 // เปลี่ยนสถานะ Autoplay
-app.post('/api/music/autoplay', (req, res) => {
+app.post('/api/music/autoplay', async (req, res) => {
   const { guildId, enabled } = req.body;
   if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
-  autoplayStates.set(guildId, !!enabled);
-  logEvent(`เปลี่ยนสถานะ Autoplay ในเซิร์ฟ ID ${guildId} เป็น: ${!!enabled ? 'เปิด' : 'ปิด'}`, 'system');
-  res.json({ success: true, enabled: !!enabled });
+  
+  const isEnabled = !!enabled;
+  autoplayStates.set(guildId, isEnabled);
+  logEvent(`เปลี่ยนสถานะ Autoplay ในเซิร์ฟ ID ${guildId} เป็น: ${isEnabled ? 'เปิด' : 'ปิด'}`, 'system');
+
+  if (isEnabled) {
+    const queue = musicQueues.get(guildId) || [];
+    const player = audioPlayers.get(guildId);
+    const connection = getVoiceConnection(guildId);
+
+    // ถ้าบอทต่อห้องเสียงอยู่ แต่คิวว่างเปล่าและไม่ได้เล่นอะไร ให้เริ่ม Autoplay ทันที!
+    if (connection && player && (queue.length === 0 || player.state.status === AudioPlayerStatus.Idle)) {
+      logEvent(`ตรวจพบสถานะว่างเปล่า กำลังสุ่มหาเพลงบน YouTube เพื่อเล่นทันที...`, 'bot');
+      const lastSong = lastPlayedSongs.get(guildId);
+      const nextSong = await getAutoplayNextSong(guildId, lastSong);
+      if (nextSong) {
+        if (!musicQueues.has(guildId)) musicQueues.set(guildId, []);
+        const q = musicQueues.get(guildId);
+        q.push(nextSong);
+
+        const stream = createYtdlpStream(nextSong.url);
+        const resource = createAudioResource(stream, { inlineVolume: true });
+        const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
+        resource.volume?.setVolume(vol);
+        player.play(resource);
+        logEvent(`[Autoplay] สุ่มเพลงเริ่มต้นสำเร็จ: "${nextSong.title}"`, 'bot');
+      }
+    }
+  }
+
+  res.json({ success: true, enabled: isEnabled });
 });
 
 // ตั้งค่าระดับเสียงของบอท (0-100)
