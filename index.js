@@ -213,8 +213,13 @@ async function getAutoplayNextSong(guildId, lastPlayedSong) {
       query = `${cleanTitle} related`;
     }
 
+    logEvent(`[Autoplay] กำลังค้นหาเพลงแนะนำจาก YouTube ด้วยคำค้น: "${query}"`, 'system');
+
     const results = await youtubeSr.YouTube.search(query, { limit: 8, type: 'video' });
-    if (!results || results.length === 0) return null;
+    if (!results || results.length === 0) {
+      logEvent(`[Autoplay] ไม่พบผลลัพธ์การค้นหาเพลงแนะนำสำหรับ: "${query}"`, 'warning');
+      return null;
+    }
 
     const candidates = results.filter(v => {
       if (!v.id) return false;
@@ -224,16 +229,20 @@ async function getAutoplayNextSong(guildId, lastPlayedSong) {
     });
 
     const pool = candidates.slice(0, 4);
-    if (pool.length === 0) return null;
+    if (pool.length === 0) {
+      logEvent(`[Autoplay] ไม่พบเพลงแนะนำที่ผ่านการกรอง (เพลงซ้ำหรือความยาวไม่ผ่าน)`, 'warning');
+      return null;
+    }
 
     const selected = pool[Math.floor(Math.random() * pool.length)];
+    logEvent(`[Autoplay] พบเพลงแนะนำสำหรับเล่นต่อ: "${selected.title}"`, 'success');
     return {
       title: selected.title || 'เพลงแนะนำ',
       url: `https://www.youtube.com/watch?v=${selected.id}`,
       duration: selected.durationFormatted || '4:00'
     };
   } catch (e) {
-    console.error('Autoplay error:', e);
+    logEvent(`[Autoplay Error] เกิดข้อผิดพลาดในการสุ่มหาเพลง: ${e.message}`, 'error');
   }
   return null;
 }
@@ -950,22 +959,26 @@ app.post('/api/music/autoplay', async (req, res) => {
     const player = audioPlayers.get(guildId);
     const connection = getVoiceConnection(guildId);
 
-    // ถ้าบอทต่อห้องเสียงอยู่ แต่คิวว่างเปล่าและไม่ได้เล่นอะไร ให้เริ่ม Autoplay ทันที!
-    if (connection && player && (queue.length === 0 || player.state.status === AudioPlayerStatus.Idle)) {
-      logEvent(`ตรวจพบสถานะว่างเปล่า กำลังสุ่มหาเพลงบน YouTube เพื่อเล่นทันที...`, 'bot');
-      const lastSong = lastPlayedSongs.get(guildId);
-      const nextSong = await getAutoplayNextSong(guildId, lastSong);
-      if (nextSong) {
-        if (!musicQueues.has(guildId)) musicQueues.set(guildId, []);
-        const q = musicQueues.get(guildId);
-        q.push(nextSong);
+    if (connection && player) {
+      if (queue.length === 0) {
+        logEvent(`ตรวจพบสถานะคิวว่างเปล่า กำลังเริ่มระบบสุ่มหาเพลงแนะนำบน YouTube...`, 'bot');
+        const lastSong = lastPlayedSongs.get(guildId);
+        const nextSong = await getAutoplayNextSong(guildId, lastSong);
+        if (nextSong) {
+          if (!musicQueues.has(guildId)) musicQueues.set(guildId, []);
+          const q = musicQueues.get(guildId);
+          q.push(nextSong);
 
-        const stream = createYtdlpStream(nextSong.url);
-        const resource = createAudioResource(stream, { inlineVolume: true });
-        const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
-        resource.volume?.setVolume(vol);
-        player.play(resource);
-        logEvent(`[Autoplay] สุ่มเพลงเริ่มต้นสำเร็จ: "${nextSong.title}"`, 'bot');
+          const stream = createYtdlpStream(nextSong.url);
+          const resource = createAudioResource(stream, { inlineVolume: true });
+          const vol = guildVolumes.has(guildId) ? guildVolumes.get(guildId) : 0.5;
+          resource.volume?.setVolume(vol);
+          player.play(resource);
+          logEvent(`[Autoplay] เริ่มเล่นเพลงสุ่มแนะนำสำเร็จ: "${nextSong.title}"`, 'bot');
+        }
+      } else if (player.state.status === AudioPlayerStatus.Idle) {
+        logEvent(`ตรวจพบเพลงค้างในคิว กำลังเริ่มเล่นเพลงจากคิวต่อ...`, 'bot');
+        playNextSong(guildId);
       }
     }
   }
