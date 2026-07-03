@@ -73,7 +73,7 @@ let botActivity = 'พิมพ์ !ping';
 const settingsCache = new Map(); // guildId -> settings document
 const musicQueues = new Map();   // guildId -> array of songs { title, url, duration }
 const audioPlayers = new Map();  // guildId -> AudioPlayer instance
-const autoplayStates = new Map(); // guildId -> boolean
+const playedSongsHistory = new Map(); // guildId -> array of played song URLs (prevents playing repeats)
 const lastPlayedSongs = new Map(); // guildId -> last played song { title, url, duration }
 const guildVolumes = new Map(); // guildId -> float volume (0.0 to 1.0)
 const consecutiveAutoplayFailures = new Map(); // guildId -> number of consecutive failures
@@ -90,7 +90,8 @@ const settingsSchema = new mongoose.Schema({
   leaveEnabled: { type: Boolean, default: false },
   leaveChannelId: { type: String, default: '' },
   leaveMessage: { type: String, default: 'คุณ {user} ได้ออกจากเซิร์ฟเวอร์ไปแล้ว ขอให้โชคดีครับ 👋' },
-  voiceChannelId: { type: String, default: null }
+  voiceChannelId: { type: String, default: null },
+  autoplayEnabled: { type: Boolean, default: true }
 });
 const Settings = mongoose.model('Settings', settingsSchema);
 
@@ -231,9 +232,15 @@ async function getAutoplayNextSong(guildId, lastPlayedSong) {
       return null;
     }
 
+    const history = playedSongsHistory.get(guildId) || [];
     const candidates = results.filter(v => {
       if (!v.id) return false;
       if (lastPlayedSong && lastPlayedSong.url.includes(v.id)) return false;
+      
+      // ป้องกันการเล่นเพลงซ้ำโดยเทียบกับประวัติการเล่นล่าสุด 15 เพลง
+      const isRepeated = history.some(url => url.includes(v.id));
+      if (isRepeated) return false;
+
       if (v.durationFormatted === '0:00') return false;
       return true;
     });
@@ -267,19 +274,39 @@ async function playNextSong(guildId) {
     return;
   }
 
+  // ดึงข้อมูลตั้งค่าของเซิร์ฟเวอร์จาก DB
+  const config = await getGuildSettings(guildId);
+
   // ลบเพลงแรกที่เพิ่งเล่นจบไปออกจากคิว
   const finishedSong = queue.shift();
   if (finishedSong) {
     lastPlayedSongs.set(guildId, finishedSong);
+
+    // บันทึกเพลงที่เล่นจบลงในประวัติเพื่อป้องกันเพลงซ้ำ (เก็บ 15 เพลงล่าสุด)
+    let history = playedSongsHistory.get(guildId);
+    if (!history) {
+      history = [];
+      playedSongsHistory.set(guildId, history);
+    }
+    history.push(finishedSong.url);
+    if (history.length > 15) {
+      history.shift();
+    }
   }
 
   if (queue.length === 0) {
-    const isAutoplayEnabled = autoplayStates.has(guildId) ? autoplayStates.get(guildId) : true;
+    const isAutoplayEnabled = config && config.autoplayEnabled !== undefined ? config.autoplayEnabled : true;
     if (isAutoplayEnabled) {
       const fails = consecutiveAutoplayFailures.get(guildId) || 0;
       if (fails >= 5) {
         logEvent(`[Autoplay] หยุดการทำงานอัตโนมัติเนื่องจากมีเพลงเล่นล้มเหลวติดต่อกัน ${fails} ครั้ง`, 'warning');
-        autoplayStates.set(guildId, false);
+        
+        // บันทึกสถานะการปิดสวิตช์ลงฐานข้อมูลถาวร
+        if (config) {
+          config.autoplayEnabled = false;
+          await config.save().catch(() => {});
+          settingsCache.set(guildId, config);
+        }
         consecutiveAutoplayFailures.set(guildId, 0);
 
         try {
@@ -522,7 +549,7 @@ app.get('/api/status', async (req, res) => {
         connectedVoiceChannelId: connectedCh?.id || null,
         connectedVoiceChannelName: connectedCh ? connectedCh.name : null,
         musicQueue: musicQueues.get(guild.id) || [],
-        autoplayEnabled: autoplayStates.has(guild.id) ? autoplayStates.get(guild.id) : true,
+        autoplayEnabled: config.autoplayEnabled !== undefined ? config.autoplayEnabled : true,
         volume: (guildVolumes.get(guild.id) !== undefined ? guildVolumes.get(guild.id) : 0.5) * 100
       };
     }));
@@ -988,7 +1015,16 @@ app.post('/api/music/autoplay', async (req, res) => {
   if (!guildId) return res.status(400).json({ error: 'ไม่พบกิลด์ ID' });
   
   const isEnabled = !!enabled;
-  autoplayStates.set(guildId, isEnabled);
+  
+  try {
+    const config = await getGuildSettings(guildId);
+    config.autoplayEnabled = isEnabled;
+    await config.save();
+    settingsCache.set(guildId, config);
+  } catch (dbErr) {
+    logEvent(`บันทึกสถานะ Autoplay ลงฐานข้อมูลล้มเหลว: ${dbErr.message}`, 'error');
+  }
+
   logEvent(`เปลี่ยนสถานะ Autoplay ในเซิร์ฟ ID ${guildId} เป็น: ${isEnabled ? 'เปิด' : 'ปิด'}`, 'system');
 
   if (isEnabled) {
