@@ -29,7 +29,7 @@ function createYtdlpStream(url) {
     '--no-warnings',
     '--no-check-certificate',
     '--no-playlist',
-    '--extractor-args', 'youtube:player_client=ios,android',
+    '--extractor-args', 'youtube:player_client=android_music,tvhtml5,ios',
     url
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -881,7 +881,7 @@ app.post('/api/music/play', async (req, res) => {
         noWarnings: true,
         noCheckCertificate: true,
         noPlaylist: true,
-        extractorArgs: 'youtube:player_client=ios,android',
+        extractorArgs: 'youtube:player_client=android_music,tvhtml5,ios',
       });
 
       const video = info.entries ? info.entries[0] : info;
