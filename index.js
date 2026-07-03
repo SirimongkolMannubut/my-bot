@@ -75,6 +75,7 @@ const audioPlayers = new Map();  // guildId -> AudioPlayer instance
 const autoplayStates = new Map(); // guildId -> boolean
 const lastPlayedSongs = new Map(); // guildId -> last played song { title, url, duration }
 const guildVolumes = new Map(); // guildId -> float volume (0.0 to 1.0)
+const consecutiveAutoplayFailures = new Map(); // guildId -> number of consecutive failures
 
 // --- โครงสร้างฐานข้อมูล MongoDB ---
 // 1. Settings Schema
@@ -157,6 +158,10 @@ function getGuildAudioPlayer(guildId, connection) {
   player.on(AudioPlayerStatus.Idle, () => {
     logEvent(`เพลงเล่นจบแล้วในกิลด์ ${guildId} กำลังดึงเพลงถัดไป...`, 'bot');
     playNextSong(guildId);
+  });
+
+  player.on(AudioPlayerStatus.Playing, () => {
+    consecutiveAutoplayFailures.set(guildId, 0);
   });
 
   player.on('error', error => {
@@ -270,7 +275,33 @@ async function playNextSong(guildId) {
   if (queue.length === 0) {
     const isAutoplayEnabled = autoplayStates.has(guildId) ? autoplayStates.get(guildId) : true;
     if (isAutoplayEnabled) {
+      const fails = consecutiveAutoplayFailures.get(guildId) || 0;
+      if (fails >= 5) {
+        logEvent(`[Autoplay] หยุดการทำงานอัตโนมัติเนื่องจากมีเพลงเล่นล้มเหลวติดต่อกัน ${fails} ครั้ง`, 'warning');
+        autoplayStates.set(guildId, false);
+        consecutiveAutoplayFailures.set(guildId, 0);
+
+        try {
+          const guild = client.guilds.cache.get(guildId);
+          if (guild) {
+            const textChannel = guild.channels.cache.find(ch => 
+              ch.type === ChannelType.GuildText && 
+              ch.permissionsFor(guild.members.me).has(PermissionFlagsBits.SendMessages)
+            );
+            if (textChannel) {
+              textChannel.send(`⚠️ **[Autoplay] ถูกปิดการทำงานชั่วคราว** เนื่องจากไม่สามารถดึงข้อมูลสตรีมหรือพบข้อผิดพลาดติดต่อกัน 5 ครั้ง (อาจเกิดจากข้อจำกัดสิทธิ์/ลิขสิทธิ์ของคลิป YouTube)`).catch(() => {});
+            }
+          }
+        } catch (msgErr) {
+          logEvent(`ส่งข้อความแจ้งเตือน Autoplay ล้มเหลว: ${msgErr.message}`, 'error');
+        }
+
+        player.stop();
+        return;
+      }
+
       logEvent(`คิวหมดแล้ว กำลังค้นหาเพลงสุ่ม/แนะนำมาเล่นต่อ (Autoplay)...`, 'bot');
+      consecutiveAutoplayFailures.set(guildId, fails + 1);
       const nextSong = await getAutoplayNextSong(guildId, finishedSong);
       if (nextSong) {
         queue.push(nextSong);
